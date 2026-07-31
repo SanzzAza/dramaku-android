@@ -2735,20 +2735,28 @@ private fun Context.isNetworkAvailable(): Boolean {
 // ─────────────────────────────────────────────────────────────────
 
 private fun extractStreamV2Url(json: JSONObject): String {
-    val episodes = json.optJSONArray("episodes")?.objects().orEmpty()
-    for (ep in episodes) {
-        val cdnList = ep.optJSONArray("cdnList")?.objects().orEmpty()
-        for (cdn in cdnList) {
-            val paths = cdn.optJSONArray("videoPathList")?.objects().orEmpty()
-            val hd = paths.firstOrNull { it.stringAny("sharpnessName").contains("HD", true) }
-            val picked = hd ?: paths.firstOrNull()
-            val vp = picked?.stringAny("videoPath").orEmpty()
-            if (vp.isNotBlank()) return vp
+    for (key in listOf("episodes", "list", "videoList")) {
+        val episodes = json.optJSONArray(key)?.objects().orEmpty()
+        for (ep in episodes) {
+            val cdnList = ep.optJSONArray("cdnList")?.objects().orEmpty()
+            for (cdn in cdnList) {
+                val paths = cdn.optJSONArray("videoPathList")?.objects().orEmpty()
+                val hd = paths.firstOrNull { it.stringAny("sharpnessName").contains("HD", true) }
+                    ?: paths.firstOrNull { it.stringAny("sharpnessName").contains("720", true) }
+                    ?: paths.firstOrNull()
+                val vp = hd?.stringAny("videoPath").orEmpty()
+                if (vp.isNotBlank()) return vp
+            }
+            val direct = ep.stringAny("playUrl", "url", "videoPath", "hls_url", "video_url", "filePath")
+            if (direct.isNotBlank()) return direct
         }
-        val direct = ep.stringAny("playUrl", "url", "videoPath")
-        if (direct.isNotBlank()) return direct
     }
-    return json.stringAny("url")
+    val data = json.optJSONObject("data")
+    if (data != null && data != json) {
+        val nested = extractStreamV2Url(data)
+        if (nested.isNotBlank()) return nested
+    }
+    return json.stringAny("url", "playUrl", "videoPath", "hls_url", "video_url", "h264_m3u8", "m3u8_url")
 }
 
 private class DramakuRepository {
@@ -3024,11 +3032,18 @@ private class DramakuRepository {
 
     suspend fun resolveStream(d: Detail, ep: Int, ds: Boolean): StreamResult {
         val drama = d.drama; val p = drama.platform; val base = apiBase(p); val id = drama.id; val res = if (ds) 480 else 720
+        val stamp = System.currentTimeMillis()
+        suspend fun tryUnifiedStream(): String {
+            val j = runCatching { getJson("$base/streamv2?id=${enc(id)}&ep=$ep&_=$stamp") }.getOrNull()
+                ?: runCatching { getJson("$base/stream?id=${enc(id)}&ep=$ep&_=$stamp") }.getOrNull()
+                ?: runCatching { getJson("$base/stream?id=${enc(id)}&episode_no=$ep&_=$stamp") }.getOrNull()
+            return j?.let { extractStreamV2Url(it) }.orEmpty()
+        }
         return when (p) {
             "melolo" -> {
-                // streamv2 kadang menyimpan source ByteDance lama. Buat ulang URL proxy dari
-                // /stream yang fresh + kid, supaya proxy Melolo dapat mendekripsi stream terbaru.
-                val stamp = System.currentTimeMillis()
+                val urlV2 = tryUnifiedStream()
+                if (urlV2.isNotBlank()) return StreamResult(urlV2)
+
                 val raw = runCatching { getJson("$base/stream?id=${enc(id)}&ep=$ep&_=$stamp") }.getOrNull()
                 val qualities = raw?.optJSONArray("qualities")?.objects().orEmpty()
                 val selected = qualities.firstOrNull { it.stringAny("label").contains("720") }
@@ -3039,17 +3054,20 @@ private class DramakuRepository {
                 if (source.isNotBlank() && kid.isNotBlank()) {
                     StreamResult("$base/melolo?url=${enc(source)}&kid=${enc(kid)}")
                 } else {
-                    // Tetap pertahankan resolver v2 bila format /stream berubah di provider.
-                    val v2 = getJson("$base/streamv2?id=${enc(id)}&ep=$ep&_=$stamp")
-                    val url = extractStreamV2Url(v2)
-                    if (url.isNotBlank()) StreamResult(url) else error("Stream Melolo tidak tersedia")
+                    error("Stream Melolo tidak tersedia atau link expired.")
                 }
             }
             "freereels" -> {
+                val urlV2 = tryUnifiedStream()
+                if (urlV2.isNotBlank()) return StreamResult(urlV2)
+
                 val j = getJson("$base/stream?dramaId=${enc(id)}&episode=$ep&lang=id").optJSONObject("data") ?: error("Video belum tersedia")
                 StreamResult(j.stringAny("h264_m3u8", "m3u8_url", "video_url"), subtitleFrom(j.optJSONArray("subtitles")))
             }
             "flickreels" -> {
+                val urlV2 = tryUnifiedStream()
+                if (urlV2.isNotBlank()) return StreamResult(urlV2)
+
                 val url = runCatching { getJson("$base/stream?id=${enc(id)}&ep=$ep").optJSONObject("data")?.stringAny("hls_url").orEmpty() }.getOrDefault("")
                 if (url.isNotBlank()) return StreamResult(url)
                 val dj = getJson("$base/detail?id=${enc(id)}")
@@ -3058,6 +3076,9 @@ private class DramakuRepository {
                 StreamResult(e?.stringAny("hls_url", "url", "video_url").orEmpty())
             }
             "reelshort" -> {
+                val urlV2 = tryUnifiedStream()
+                if (urlV2.isNotBlank()) return StreamResult(urlV2)
+
                 val data = getJson("$base/stream?id=${enc(id)}&episode_no=$ep").optJSONObject("data") ?: error("Video belum tersedia")
                 val vl = data.optJSONArray("videoList")?.objects().orEmpty()
                 val pick = vl.firstOrNull { it.stringAny("encode") == "H264" && it.intAny("dpi", 0) == res } ?: vl.firstOrNull { it.stringAny("encode") == "H264" } ?: vl.firstOrNull()
@@ -3099,6 +3120,9 @@ private class DramakuRepository {
                 error(lastErr ?: "Video MovieBox belum tersedia.")
             }
             "goodshort" -> {
+                val urlV2 = tryUnifiedStream()
+                if (urlV2.isNotBlank()) return StreamResult(urlV2)
+
                 val dj = runCatching { getJson("$base/detail?bookId=${enc(id)}") }.getOrNull()
                 val ld = dj?.optJSONObject("data")?.optJSONArray("list")
                 val epData = ld?.optJSONObject(ep - 1)
@@ -3116,11 +3140,17 @@ private class DramakuRepository {
                 StreamResult(lp?.stringAny("filePath").orEmpty())
             }
             "dramabox" -> {
+                val urlV2 = tryUnifiedStream()
+                if (urlV2.isNotBlank()) return StreamResult(urlV2)
+
                 val data = getJson("$base/stream?bookId=${enc(id)}&chapterIndex=${ep - 1}&lang=in").optJSONObject("data") ?: error("Video belum tersedia")
                 val q = data.optJSONArray("qualities")?.objects()?.firstOrNull { it.intAny("quality", 0) == res } ?: data.optJSONArray("qualities")?.optJSONObject(0)
                 StreamResult(data.stringAny("videoUrl").ifBlank { q?.stringAny("videoPath").orEmpty() })
             }
             "netshort" -> {
+                val urlV2 = tryUnifiedStream()
+                if (urlV2.isNotBlank()) return StreamResult(urlV2)
+
                 val v2 = getJson("$base/streamv2?id=${enc(id)}&ep=$ep")
                 val nested = extractStreamV2Url(v2)
                 if (nested.isNotBlank()) return StreamResult(nested)
@@ -3129,6 +3159,9 @@ private class DramakuRepository {
                 StreamResult(data.stringAny("play_url").ifBlank { s?.stringAny("url").orEmpty() })
             }
             "dramanova" -> {
+                val urlV2 = tryUnifiedStream()
+                if (urlV2.isNotBlank()) return StreamResult(urlV2)
+
                 val data = getJson("$base/stream?id=${enc(id)}&ep=$ep").optJSONObject("data") ?: error("Video belum tersedia")
                 val play = data.optJSONObject("play") ?: data
                 val q = play.optJSONArray("qualities")?.objects()?.firstOrNull { it.stringAny("codec") == "h264" } ?: play.optJSONArray("qualities")?.optJSONObject(0)
