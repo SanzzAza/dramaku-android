@@ -2896,6 +2896,9 @@ private class DramakuRepository {
     suspend fun loadHome(p: String) = loadHomePage(p, 1)
 
     suspend fun loadHomePage(p: String, page: Int): HomeBundle = coroutineScope {
+        if (p == "melolo") {
+            return@coroutineScope loadMeloloHomeBundle(page)
+        }
         val req = homePageRequest(p, page)
         val json = try { getJson(req.url) } catch (e: CancellationException) { throw e } catch (_: Throwable) { null }
         val items = dedupe(json?.let { flat(it.dataOrSelf(), p) }.orEmpty())
@@ -2907,6 +2910,52 @@ private class DramakuRepository {
         }
         if (rec.isEmpty() && pop.isEmpty() && nw.isEmpty() && req.virtualPage == 1) error("Data kosong")
         HomeBundle(rec, pop, nw, req.virtualPage, more)
+    }
+
+    private suspend fun loadMeloloHomeBundle(page: Int): HomeBundle = coroutineScope {
+        val base = apiBase("melolo")
+        val urls = when (page) {
+            1 -> listOf(
+                "$base/bookmall?lang=id",
+                "$base/bookmall/tabs?gender=0&lang=id",
+                "$base/bookmall/tabs?gender=2&lang=id",
+                "$base/search?q=cinta&lang=id&limit=50&offset=0",
+                "$base/search?q=boss&lang=id&limit=50&offset=0"
+            )
+            2 -> listOf(
+                "$base/search?q=nikah&lang=id&limit=50&offset=0",
+                "$base/search?q=istri&lang=id&limit=50&offset=0",
+                "$base/search?q=suami&lang=id&limit=50&offset=0",
+                "$base/search?q=cinta&lang=id&limit=50&offset=50"
+            )
+            3 -> listOf(
+                "$base/search?q=ceo&lang=id&limit=50&offset=0",
+                "$base/search?q=a&lang=id&limit=50&offset=0",
+                "$base/search?q=boss&lang=id&limit=50&offset=50"
+            )
+            4 -> listOf(
+                "$base/search?q=i&lang=id&limit=50&offset=0",
+                "$base/search?q=nikah&lang=id&limit=50&offset=50",
+                "$base/search?q=u&lang=id&limit=50&offset=0"
+            )
+            else -> listOf(
+                "$base/search?q=a&lang=id&limit=50&offset=50",
+                "$base/search?q=i&lang=id&limit=50&offset=50"
+            )
+        }
+        val jobs = urls.map { u ->
+            async {
+                runCatching { getJson(u) }.getOrNull()?.let { flat(it.dataOrSelf(), "melolo") }.orEmpty()
+            }
+        }
+        val all = dedupe(jobs.awaitAll().flatten())
+        if (all.isEmpty() && page == 1) {
+            error("Data Melolo kosong, coba beberapa saat lagi")
+        }
+        val rec = all
+        val pop = dedupe(all.reversed())
+        val nw = dedupe(all.shuffled())
+        HomeBundle(rec, pop, nw, page, page < 5)
     }
 
     private suspend fun loadFallback(broken: String): HomeBundle = coroutineScope {
