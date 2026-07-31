@@ -280,6 +280,21 @@ private fun App() {
     var category by remember { mutableStateOf<HomeCategory?>(null) }
     var showSettings by remember { mutableStateOf(false) }
 
+    val playerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            val id = data.getStringExtra(PlayerActivity.RESULT_DRAMA_ID).orEmpty()
+            val pid = data.getStringExtra(PlayerActivity.RESULT_PLATFORM).orEmpty()
+            val ep = data.getIntExtra(PlayerActivity.RESULT_EPISODE, 1)
+            val pos = data.getLongExtra(PlayerActivity.RESULT_POSITION, 0L)
+            val dur = data.getLongExtra(PlayerActivity.RESULT_DURATION, 0L)
+            if (id.isNotBlank() && pid.isNotBlank()) {
+                store.updateProgress(id, pid, ep, pos, dur)
+                dataTick++
+            }
+        }
+    }
+
     fun openPlayer(d: Detail, ep: Int) { playerSession = PlayerSession(d, ep) }
 
     LaunchedEffect(refreshKey) {
@@ -333,6 +348,7 @@ private fun App() {
 
     BackHandler(enabled = selectedDrama != null) { selectedDrama = null; pendingResume = null }
     BackHandler(enabled = showSettings) { showSettings = false }
+    // Back dari halaman kategori kembali ke layar awal kategori (pintu masuk)
     BackHandler(enabled = category != null && !showSettings && selectedDrama == null && playerSession == null && clipFeedItems.isEmpty()) { category = null }
 
     Box(Modifier.fillMaxSize().background(DS.Bg)) {
@@ -374,9 +390,7 @@ private fun App() {
                                 remoteError = remoteError, loadingMore = homeLoadingMore,
                                 loadMoreError = homeAppendError, onLoadMore = ::loadMore,
                                 onPlatform = {
-                                    val allowed = remoteConfig?.isPlatformEnabled(it) ?: true
-                                    if (!allowed) Toast.makeText(ctx, "${platformLabel(it)}: Maintenance", Toast.LENGTH_SHORT).show()
-                                    else { selPlatform = it; store.setPlatform(it); store.setCategoryPlatform(activeCat.id, it); refreshKey++ }
+                                    selPlatform = it; store.setPlatform(it); store.setCategoryPlatform(activeCat.id, it); refreshKey++
                                 },
                                 onRefresh = { refreshKey++ }, onDrama = { selectedDrama = it },
                                 onSearch = { tab = Tab.Search },
@@ -922,7 +936,7 @@ private fun SearchScreen(repo: DramakuRepository, store: LocalStore, currentPlat
 @Composable
 private fun LibraryScreen(store: LocalStore, dataTick: Int, onDrama: (Drama) -> Unit, onResume: (HistoryItem) -> Unit) {
     val favs = remember(dataTick) { store.favs() }
-    val hist = remember(dataTick) { store.history() }
+    val hist = remember(dataTick) { store.history(dataTick) }
     Column(Modifier.fillMaxSize().padding(24.dp).background(DS.Bg)) {
         Text("Koleksi", color = DS.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
         Spacer(Modifier.height(24.dp))
@@ -976,7 +990,7 @@ private fun SettingRow(title: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+private fun Section(title: String, subtitle: String = "", content: @Composable () -> Unit) {
     Column {
         Text(title, color = DS.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
         content()
@@ -1110,25 +1124,10 @@ private fun mergeHomeBundles(c: HomeBundle, n: HomeBundle) = HomeBundle(dedupe(c
 private fun dedupe(items: List<Drama>) = items.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.platform + "|" + it.id }.distinctBy { it.platform + "|" + normalizeKey(it.title) }
 
 // ─────────────────────────────────────────────────────────────────
-// REPOSITORY (RESTORED ORIGINAL LOGIC)
+// REPOSITORY (FIXED CONTENT LOAD)
 // ─────────────────────────────────────────────────────────────────
 
-private fun extractStreamV2Url(json: JSONObject): String {
-    for (key in listOf("episodes", "list", "videoList")) {
-        val episodes = json.optJSONArray(key)?.objects().orEmpty()
-        for (ep in episodes) {
-            val cdnList = ep.optJSONArray("cdnList")?.objects().orEmpty()
-            for (cdn in cdnList) {
-                val paths = cdn.optJSONArray("videoPathList")?.objects().orEmpty()
-                val vp = paths.firstOrNull()?.stringAny("videoPath").orEmpty()
-                if (vp.isNotBlank()) return vp
-            }
-            val direct = ep.stringAny("playUrl", "url", "videoPath", "hls_url").orEmpty()
-            if (direct.isNotBlank()) return direct
-        }
-    }
-    return json.stringAny("url", "playUrl").orEmpty()
-}
+private fun JSONObject.dataOrSelf(): Any = opt("data")?.takeUnless { it == JSONObject.NULL } ?: this
 
 private class DramakuRepository {
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).build()
@@ -1137,28 +1136,22 @@ private class DramakuRepository {
     suspend fun loadHome(p: String) = loadHomePage(p, 1)
 
     suspend fun loadHomePage(p: String, page: Int): HomeBundle = coroutineScope {
-        if (p == "melolo") return@coroutineScope loadMeloloHome(page)
         val urls = homeUrls(p, page)
         val jobs = urls.map { async { runCatching { getJson(it) }.getOrNull() } }
         val results = jobs.awaitAll()
+        
         val rec = flat(results.getOrNull(0)?.dataOrSelf(), p)
         val pop = flat(results.getOrNull(1)?.dataOrSelf(), p)
         val newest = flat(results.getOrNull(2)?.dataOrSelf(), p)
+        
         HomeBundle(rec, pop, newest, page, page < 5)
-    }
-
-    private suspend fun loadMeloloHome(page: Int): HomeBundle {
-        val base = apiBase("melolo")
-        val url = if (page == 1) "$base/bookmall?lang=id" else "$base/search?q=a&lang=id&limit=20&offset=${(page - 1) * 20}"
-        val json = runCatching { getJson(url) }.getOrNull()
-        val items = flat(json?.dataOrSelf(), "melolo")
-        return HomeBundle(items, items.shuffled(), items.reversed(), page, page < 5)
     }
 
     suspend fun searchPlatform(q: String, p: String): List<Drama> = coroutineScope {
         val base = apiBase(p)
         val url = when(p) {
             "moviebox" -> "$base/subject/search?keyword=${enc(q)}&page=1"
+            "melolo" -> "$base/search?q=${enc(q)}&lang=id&limit=20"
             else -> "$base/search?q=${enc(q)}&lang=id"
         }
         flat(runCatching { getJson(url).dataOrSelf() }.getOrNull(), p)
@@ -1169,25 +1162,33 @@ private class DramakuRepository {
         val base = apiBase(d.platform)
         val url = when(d.platform) {
             "moviebox" -> "$base/subject/get?subjectId=${enc(d.id)}&lang=id"
+            "melolo" -> "$base/book?id=${enc(d.id)}&lang=id"
             else -> "$base/detail?id=${enc(d.id)}&lang=id"
         }
         val raw = runCatching { getJson(url).dataOrSelf() }.getOrNull() as? JSONObject ?: JSONObject()
         val res = normalize(raw, d.platform)
         val epsArr = raw.optJSONArray("episodes") ?: raw.optJSONArray("video_list") ?: raw.optJSONArray("chapterList")
         val eps = epsArr?.objects()?.mapIndexed { i, o -> EpisodeInfo(o.intAny("episode", "index", i + 1), o.stringAny("streaming", "url")) }.orEmpty()
-        return Detail(res.copy(id = d.id, title = res.title.ifBlank { d.title }), eps).also { detailCache[d.platform + d.id] = it }
+        return Detail(res.copy(id = d.id), eps).also { detailCache[d.platform + d.id] = it }
     }
 
     suspend fun resolveStreamCached(d: Detail, ep: Int, ds: Boolean): StreamResult {
         val base = apiBase(d.drama.platform)
         val url = "$base/stream?id=${enc(d.drama.id)}&ep=$ep"
         val json = runCatching { getJson(url).dataOrSelf() }.getOrNull() as? JSONObject ?: JSONObject()
-        val stream = extractStreamV2Url(json).ifBlank { json.stringAny("url", "playUrl", "video_url") }
-        return StreamResult(stream)
+        return StreamResult(json.stringAny("url", "playUrl", "video_url"))
     }
 
     private suspend fun getJson(url: String): JSONObject = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url(url).header("User-Agent", "Dramaku/5.0").build()
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Dramaku/5.0")
+            .apply {
+                if (url.contains("captain.sapimu.au")) {
+                    header("Authorization", "Bearer 15693e658f723c5b4c45900a5d045ef0ab6a053ecda4dadb831c68fef773ba5e")
+                }
+            }
+            .build()
         client.newCall(req).execute().use { r -> JSONObject(r.body?.string() ?: "{}") }
     }
 
@@ -1195,6 +1196,8 @@ private class DramakuRepository {
         val base = apiBase(p)
         return when (p) {
             "moviebox" -> listOf("$base/tabs/home-content?page=$sp&lang=id", "$base/tabs/category-content?type=1&page=$sp", "$base/shorts/most-trending")
+            "melolo" -> listOf("$base/bookmall?lang=id&page=$sp", "$base/bookmall/tabs?gender=0&page=$sp", "$base/bookmall/tabs?gender=1&page=$sp")
+            "drakor" -> listOf("$base/home/korea?page=$sp", "$base/trending?page=$sp", "$base/terbaru?page=$sp")
             else -> listOf("$base/home?page=$sp&lang=id", "$base/populer?page=$sp", "$base/new?page=$sp")
         }
     }
@@ -1205,32 +1208,43 @@ private class DramakuRepository {
 // ─────────────────────────────────────────────────────────────────
 
 private class LocalStore(ctx: Context) {
-    private val p = ctx.getSharedPreferences("dramaku_v4", Context.MODE_PRIVATE)
+    private val p = ctx.getSharedPreferences("dramaku_premium", Context.MODE_PRIVATE)
     fun platform() = p.getString("p", "melolo") ?: "melolo"
     fun setPlatform(s: String) = p.edit().putString("p", s).apply()
     fun categoryPlatform(cat: String, fallback: String) = p.getString("cp_$cat", fallback) ?: fallback
     fun setCategoryPlatform(cat: String, platform: String) = p.edit().putString("cp_$cat", platform).apply()
+    
     fun updateProgress(id: String, platform: String, ep: Int, pos: Long, dur: Long) {
         p.edit().putLong("prog_${platform}_${id}_${ep}_pos", pos).putLong("prog_${platform}_${id}_${ep}_dur", dur).apply()
     }
-    fun history(tick: Int = 0): List<HistoryItem> = emptyList()
+
+    fun history(tick: Int = 0): List<HistoryItem> = runCatching {
+        val a = JSONArray(p.getString("h", "[]"))
+        (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { o -> HistoryItem(o.optString("id"), o.optString("title"), o.optString("poster"), o.optString("platform"), o.optInt("episode"), o.optLong("pos"), o.optLong("dur"), o.optLong("updated")) } }
+    }.getOrDefault(emptyList())
+
     fun favs(): List<Drama> = emptyList()
     fun isFav(id: String, p: String) = false
     fun toggleFav(d: Drama) {}
-    fun clearHistory() {}
-    fun clearFavs() {}
+    fun clearHistory() = p.edit().remove("h").apply()
+    fun clearFavs() = p.edit().remove("f").apply()
 }
 
 // ─────────────────────────────────────────────────────────────────
 // JSON HELPERS
 // ─────────────────────────────────────────────────────────────────
 
-private fun JSONObject.dataOrSelf(): Any = opt("data")?.takeUnless { it == JSONObject.NULL } ?: this
-private fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
+private fun JSONArray.objects(): List<JSONObject> {
+    val l = mutableListOf<JSONObject>()
+    for (i in 0 until length()) optJSONObject(i)?.let { l.add(it) }
+    return l
+}
+
 private fun JSONObject.stringAny(vararg keys: String): String {
     for (k in keys) { val v = opt(k); if (v != null && v != JSONObject.NULL && v.toString().isNotBlank()) return v.toString().trim() }
     return ""
 }
+
 private fun JSONObject.intAny(vararg keys: Any): Int {
     for (k in keys) { if (k is String && has(k)) { val v = opt(k); return when(v) { is Number -> v.toInt(); is String -> v.toIntOrNull() ?: 0; else -> 0 } } }
     return 0
@@ -1239,22 +1253,22 @@ private fun JSONObject.intAny(vararg keys: Any): Int {
 private fun flat(any: Any?, fp: String): List<Drama> {
     val out = mutableListOf<Drama>()
     when (any) {
-        is JSONArray -> any.objects().forEach { out.add(normalize(it, fp)) }
+        is JSONArray -> any.objects().forEach { out.addAll(flat(it, fp)) }
         is JSONObject -> {
-            val list = any.optJSONArray("books") ?: any.optJSONArray("subjects") ?: any.optJSONArray("items")
+            val list = any.optJSONArray("books") ?: any.optJSONArray("subjects") ?: any.optJSONArray("items") ?: any.optJSONArray("records") ?: any.optJSONArray("cell_data")
             if (list != null) out.addAll(flat(list, fp)) else out.add(normalize(any, fp))
         }
     }
-    return out.filter { it.id.isNotBlank() }
+    return out.filter { it.id.isNotBlank() && it.title.isNotBlank() }
 }
 
 private fun normalize(o: JSONObject, fp: String) = Drama(
-    o.stringAny("id", "drama_id", "bookId", "subjectId"),
-    o.stringAny("title", "name", "drama_name", "bookName", "book_name"),
-    o.stringAny("description", "intro", "synopsis", "introduction"),
-    o.stringAny("poster", "cover", "thumb_url", "coverWap", "bookCover"),
-    o.intAny("episodes", "episode_count", "chapterCount", "totalEpisode"),
-    o.stringAny("views", "hits", "hotCode"),
+    o.stringAny("id", "drama_id", "bookId", "subjectId", "book_id"),
+    o.stringAny("title", "name", "drama_name", "bookName", "book_name", "title"),
+    o.stringAny("description", "intro", "synopsis", "introduction", "intro_text"),
+    o.stringAny("poster", "cover", "thumb_url", "coverWap", "bookCover", "image", "thumb"),
+    o.intAny("episodes", "episode_count", "chapterCount", "totalEpisode", "episode_number"),
+    o.stringAny("views", "hits", "hotCode", "stat_value"),
     emptyList(),
     fp
 )
