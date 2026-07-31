@@ -22,6 +22,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -115,30 +116,32 @@ import kotlin.math.max
 import kotlin.math.min
 
 // ─────────────────────────────────────────────────────────────────
-// DESIGN SYSTEM — Aura Premium: Sleek, Modern, High-End
+// DESIGN SYSTEM — Warm Neo Brutalism
+// Kuning hangat, outline tebal, sudut tegas, dan kontras tinggi.
 // ─────────────────────────────────────────────────────────────────
 
 private object DS {
-    val Bg = Color(0xFF07070E)
-    val Bg2 = Color(0xFF10101E)
-    val Bg3 = Color(0xFF18182E)
-    val Bg4 = Color(0xFF22223D)
-    val Line = Color(0x18FFFFFF)
+    val Bg = Color(0xFF17130B)
+    val Bg2 = Color(0xFF292114)
+    val Bg3 = Color(0xFF3A2F1B)
+    val Bg4 = Color(0xFF4B3C20)
+    val Line = Color(0xFF050505)
 
-    val Primary = Color(0xFF7C3AED)   // Violet
-    val Secondary = Color(0xFF3B82F6) // Blue
-    val PrimaryDim = Color(0xFF7C3AED).copy(alpha = 0.12f)
-    val Gold = Color(0xFFFACC15)
+    val Primary = Color(0xFFF6C945)   // warm mustard
+    val Secondary = Color(0xFFFF8A3D) // warm orange
+    val PrimaryDim = Color(0x33F6C945)
+    val Gold = Color(0xFFFFDC62)
 
-    val White = Color(0xFFFFFFFF)
-    val Text = Color(0xFFF1F5F9)
-    val Muted = Color(0xFF94A3B8)
-    val Hint = Color(0xFF64748B)
+    val White = Color(0xFFFFF7DF)
+    val Text = Color(0xFFFFEDBC)
+    val Muted = Color(0xFFCDBF99)
+    val Hint = Color(0xFF95886A)
 
-    val Red = Color(0xFFEF4444)
-    val RedDim = Color(0xFFEF4444).copy(alpha = 0.12f)
+    val Red = Color(0xFFFF5A4F)
+    val RedDim = Color(0x33FF5A4F)
 
-    val MainGrad = listOf(Color(0xFF7C3AED), Color(0xFF3B82F6))
+    val MainGrad = listOf(Color(0xFFF6C945), Color(0xFFFF8A3D))
+    val BrutalShape = RoundedCornerShape(4.dp)
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -169,11 +172,12 @@ private fun DramakuApp() {
             secondary = DS.Secondary,
             background = DS.Bg,
             surface = DS.Bg2,
-            onPrimary = Color.White,
+            onPrimary = Color.Black,
+            onSecondary = Color.Black,
             onBackground = DS.White,
             onSurface = DS.White,
-            primaryContainer = DS.Bg3,
-            onPrimaryContainer = DS.White
+            primaryContainer = DS.Primary,
+            onPrimaryContainer = Color.Black
         )
     ) {
         App()
@@ -482,13 +486,14 @@ private fun BottomNavBar(selected: Tab, onSelect: (Tab) -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            color = DS.Bg2.copy(alpha = 0.92f),
-            tonalElevation = 12.dp,
-            shape = RoundedCornerShape(32.dp),
+            color = DS.Primary,
+            shadowElevation = 0.dp,
+            shape = DS.BrutalShape,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(72.dp)
-                .border(1.dp, DS.Line, RoundedCornerShape(32.dp))
+                .offset(x = 4.dp, y = 4.dp)
+                .border(3.dp, Color.Black, DS.BrutalShape)
         ) {
             Row(
                 Modifier.fillMaxSize().padding(horizontal = 8.dp),
@@ -501,7 +506,9 @@ private fun BottomNavBar(selected: Tab, onSelect: (Tab) -> Unit) {
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp)
-                            .clip(CircleShape)
+                            .padding(3.dp)
+                            .clip(DS.BrutalShape)
+                            .background(if (active) Color.Black else Color.Transparent)
                             .clickable { onSelect(tab) },
                         contentAlignment = Alignment.Center
                     ) {
@@ -512,8 +519,8 @@ private fun BottomNavBar(selected: Tab, onSelect: (Tab) -> Unit) {
                             Icon(
                                 tab.icon,
                                 tab.label,
-                                tint = if (active) DS.Primary else DS.Hint,
-                                modifier = Modifier.size(if (active) 26.dp else 22.dp)
+                                tint = if (active) DS.Primary else Color.Black.copy(alpha = 0.68f),
+                                modifier = Modifier.size(if (active) 25.dp else 22.dp)
                             )
                             if (active) {
                                 Spacer(Modifier.height(4.dp))
@@ -695,8 +702,9 @@ private fun CategoryHomeScreen(onSelect: (HomeCategory) -> Unit, onSettings: () 
 @Composable
 private fun CategoryWideCard(category: HomeCategory, icon: ImageVector, badgeText: String, title: String, subtitle: String, accent: Color, onClick: () -> Unit) {
     Surface(
-        color = DS.Bg2, shape = RoundedCornerShape(22.dp),
-        modifier = Modifier.fillMaxWidth().border(1.dp, DS.Line, RoundedCornerShape(22.dp)).clickable(onClick = onClick)
+        color = DS.Bg2, shape = DS.BrutalShape,
+        modifier = Modifier.fillMaxWidth().offset(x = 4.dp, y = 4.dp)
+            .border(3.dp, Color.Black, DS.BrutalShape).clickable(onClick = onClick)
     ) {
         Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(accent.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
@@ -716,14 +724,14 @@ private fun CategoryWideCard(category: HomeCategory, icon: ImageVector, badgeTex
 @Composable
 private fun CategorySmallCard(category: HomeCategory, icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
     Surface(
-        color = DS.Bg2, shape = RoundedCornerShape(20.dp),
-        modifier = modifier.border(1.dp, DS.Line, RoundedCornerShape(20.dp)).clickable(onClick = onClick)
+        color = DS.Primary, shape = DS.BrutalShape,
+        modifier = modifier.offset(x = 3.dp, y = 3.dp).border(3.dp, Color.Black, DS.BrutalShape).clickable(onClick = onClick)
     ) {
         Column(Modifier.padding(20.dp)) {
-            Icon(icon, null, tint = DS.Muted)
+            Icon(icon, null, tint = Color.Black)
             Spacer(Modifier.height(12.dp))
-            Text(category.title, color = DS.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            if (category.comingSoon) Text("Segera", color = DS.Hint, fontSize = 11.sp)
+            Text(category.title.uppercase(), color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Black)
+            if (category.comingSoon) Text("SEGERA", color = Color.Black.copy(alpha = .65f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -752,11 +760,11 @@ private fun HomeHeader(
                 val selected = source.id == platformId
                 Surface(
                     color = if (selected) DS.Primary else DS.Bg2,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.height(40.dp).clickable { onPlatform(source.id) }.border(1.dp, if (selected) Color.Transparent else DS.Line, RoundedCornerShape(12.dp))
+                    shape = DS.BrutalShape,
+                    modifier = Modifier.height(42.dp).clickable { onPlatform(source.id) }.border(3.dp, Color.Black, DS.BrutalShape)
                 ) {
                     Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                        Text(source.label, color = if (selected) Color.White else DS.Text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(source.label.uppercase(), color = if (selected) Color.Black else DS.Text, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
@@ -807,7 +815,7 @@ private fun ContinueCard(h: HistoryItem, onClick: (HistoryItem) -> Unit) {
 @Composable
 private fun DiscoverDramaCard(drama: Drama, isNew: Boolean, onClick: (Drama) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.clickable { onClick(drama) }) {
-        Box(Modifier.fillMaxWidth().aspectRatio(0.72f).clip(RoundedCornerShape(20.dp)).background(DS.Bg2)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(0.72f).clip(DS.BrutalShape).background(DS.Bg2).border(3.dp, Color.Black, DS.BrutalShape)) {
             AsyncImage(drama.poster, drama.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
             if (drama.episodes > 0) {
@@ -1048,26 +1056,74 @@ private fun ClipFeedPlayer(items: List<Drama>, repo: DramakuRepository, store: L
     val ctx = LocalContext.current
     val pager = rememberPagerState(pageCount = { items.size })
     val player = remember { buildPlayer(ctx) }
-    
+    var playing by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) { onDispose { player.release() } }
     BackHandler { player.stop(); onClose() }
-    
+
     LaunchedEffect(pager.currentPage) {
         val drama = items[pager.currentPage]
-        val stream = runCatching { repo.resolveStreamCached(Detail(drama), 1, false) }.getOrNull()
-        if (stream != null) {
-            player.setMediaItem(MediaItem.fromUri(stream.url))
-            player.prepare()
-            player.play()
+        loadError = null
+        runCatching { repo.resolveStreamCached(Detail(drama), 1, false) }
+            .onSuccess {
+                player.setMediaItem(MediaItem.fromUri(it.url)); player.prepare(); player.play()
+                playing = true
+            }
+            .onFailure { loadError = it.message ?: "Video gagal dimuat" }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        VerticalPager(pager, Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { PlayerView(it).apply { this.player = player; useController = false } },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.35f), Color.Transparent, Color.Black.copy(.9f)))))
+        BrutalPlayerTopBar("CUPLIKAN", "${pager.currentPage + 1}/${items.size}") { player.stop(); onClose() }
+
+        Surface(
+            color = DS.Primary, shape = DS.BrutalShape,
+            modifier = Modifier.align(Alignment.Center).size(70.dp).border(3.dp, Color.Black, DS.BrutalShape)
+                .clickable { if (player.isPlaying) player.pause() else player.play(); playing = player.isPlaying }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(38.dp))
+            }
+        }
+
+        val drama = items[pager.currentPage]
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(20.dp)) {
+            Text("SWIPE UNTUK DRAMA BERIKUTNYA", color = DS.Primary, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Text(drama.title.uppercase(), color = Color.White, fontSize = 24.sp, lineHeight = 27.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("${platformLabel(drama.platform)} • EPISODE 1", color = DS.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            loadError?.let { Text(it, color = DS.Red, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 8.dp)) }
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = { onWatchFull(Detail(drama)) }, colors = ButtonDefaults.buttonColors(containerColor = DS.Primary, contentColor = Color.Black), shape = DS.BrutalShape, modifier = Modifier.weight(1f).border(3.dp, Color.Black, DS.BrutalShape)) {
+                    Text("TONTON FULL", fontWeight = FontWeight.Black)
+                }
+                OutlinedButton(onClick = { onOpenDetail(drama) }, shape = DS.BrutalShape, border = BorderStroke(3.dp, DS.Primary)) {
+                    Text("DETAIL", color = DS.Primary, fontWeight = FontWeight.Black)
+                }
+            }
         }
     }
-    
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        VerticalPager(pager, Modifier.fillMaxSize()) { page ->
-            AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false } }, modifier = Modifier.fillMaxSize())
+}
+
+@Composable
+private fun BrutalPlayerTopBar(label: String, counter: String, onClose: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(18.dp).background(DS.Primary, DS.BrutalShape)
+            .border(3.dp, Color.Black, DS.BrutalShape).padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = onClose, modifier = Modifier.size(38.dp).background(Color.Black, DS.BrutalShape)) {
+            Icon(Icons.Rounded.Close, null, tint = DS.Primary)
         }
-        IconButton(onClick = { player.stop(); onClose() }, modifier = Modifier.padding(20.dp).align(Alignment.TopStart)) {
-            Icon(Icons.Rounded.Close, null, tint = Color.White)
-        }
+        Text(label, color = Color.Black, fontWeight = FontWeight.Black, letterSpacing = 1.sp, modifier = Modifier.padding(start = 12.dp).weight(1f))
+        Text(counter, color = Color.Black, fontWeight = FontWeight.Black, modifier = Modifier.background(Color.White, DS.BrutalShape).border(2.dp, Color.Black, DS.BrutalShape).padding(horizontal = 10.dp, vertical = 5.dp))
     }
 }
 
@@ -1078,23 +1134,51 @@ private fun VerticalEpisodePlayer(detail: Detail, startEp: Int, repo: DramakuRep
     val total = max(detail.drama.episodes, detail.episodes.size).coerceAtLeast(1)
     val pager = rememberPagerState(initialPage = (startEp - 1).coerceIn(0, total - 1), pageCount = { total })
     val player = remember { buildPlayer(ctx) }
-    
+    var playing by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) { onDispose { player.release() } }
     BackHandler { player.stop(); onClose() }
-    
+
     LaunchedEffect(pager.currentPage) {
         val ep = pager.currentPage + 1
-        val res = runCatching { repo.resolveStreamCached(detail, ep, false) }.getOrNull()
-        if (res != null) {
-            player.setMediaItem(MediaItem.fromUri(res.url))
-            player.prepare()
-            player.play()
-        }
+        loadError = null
+        runCatching { repo.resolveStreamCached(detail, ep, false) }
+            .onSuccess {
+                player.setMediaItem(MediaItem.fromUri(it.url)); player.prepare(); player.play()
+                playing = true
+            }
+            .onFailure { loadError = it.message ?: "Video gagal dimuat" }
     }
-    
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = true } }, modifier = Modifier.fillMaxSize())
-        IconButton(onClick = { player.stop(); onClose() }, modifier = Modifier.padding(20.dp).align(Alignment.TopStart).background(Color.Black.copy(alpha = 0.5f), CircleShape)) {
-            Icon(Icons.Rounded.Close, null, tint = Color.White)
+        VerticalPager(pager, Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { PlayerView(it).apply { this.player = player; useController = false } },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.4f), Color.Transparent, Color.Black.copy(.92f)))))
+        BrutalPlayerTopBar("DRAMAKU PLAYER", "EP ${pager.currentPage + 1}/$total") { player.stop(); onClose() }
+
+        Surface(
+            color = DS.Primary, shape = DS.BrutalShape,
+            modifier = Modifier.align(Alignment.Center).size(76.dp).border(4.dp, Color.Black, DS.BrutalShape)
+                .clickable { if (player.isPlaying) player.pause() else player.play(); playing = player.isPlaying }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(42.dp))
+            }
+        }
+
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(20.dp)) {
+            Surface(color = DS.Primary, shape = DS.BrutalShape, modifier = Modifier.border(3.dp, Color.Black, DS.BrutalShape)) {
+                Text("EPISODE ${pager.currentPage + 1}", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(detail.drama.title.uppercase(), color = Color.White, fontSize = 24.sp, lineHeight = 27.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("SWIPE ATAS / BAWAH UNTUK GANTI EPISODE", color = DS.Primary, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = .6.sp)
+            loadError?.let { Text(it, color = DS.Red, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 8.dp)) }
         }
     }
 }
