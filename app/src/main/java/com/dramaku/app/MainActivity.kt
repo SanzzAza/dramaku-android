@@ -1795,7 +1795,6 @@ private fun EmptyState(title: String, subtitle: String, icon: ImageVector) {
 }
 
 @Composable
-@Composable
 private fun ListItem(title: String, subtitle: String, poster: String, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
     Surface(
         color = DS.Bg2.copy(alpha = 0.85f),
