@@ -1146,22 +1146,35 @@ private class DramakuRepository {
 
     suspend fun loadHomePage(p: String, page: Int): HomeBundle = coroutineScope {
         if (p == "melolo") return@coroutineScope loadMeloloHome(page)
+
         val urls = homeUrls(p, page)
-        val jobs = urls.map { async { runCatching { getJson(it) }.getOrNull() } }
-        val results = jobs.awaitAll()
-        
+        val responses = urls.map { url -> async { runCatching { getJson(url) } } }.awaitAll()
+        val results = responses.map { it.getOrNull() }
+
+        // Jangan mengubah kegagalan seluruh endpoint menjadi halaman kosong.
+        if (results.all { it == null }) {
+            val cause = responses.firstNotNullOfOrNull { it.exceptionOrNull() }
+            throw IllegalStateException(
+                "Konten $p gagal dimuat${cause?.message?.let { ": $it" }.orEmpty()}",
+                cause
+            )
+        }
+
         val rec = flat(results.getOrNull(0)?.dataOrSelf(), p)
         val pop = flat(results.getOrNull(1)?.dataOrSelf(), p)
         val newest = flat(results.getOrNull(2)?.dataOrSelf(), p)
-        
+        val hasContent = rec.isNotEmpty() || pop.isNotEmpty() || newest.isNotEmpty()
+
+        if (!hasContent) error("API $p merespons, tetapi tidak berisi daftar drama")
         HomeBundle(rec, pop, newest, page, page < 5)
     }
 
     private suspend fun loadMeloloHome(page: Int): HomeBundle {
         val base = apiBase("melolo")
         val url = if (page == 1) "$base/bookmall?lang=id" else "$base/search?q=a&lang=id&limit=20&offset=${(page - 1) * 20}"
-        val json = runCatching { getJson(url) }.getOrNull()
-        val items = flat(json?.dataOrSelf(), "melolo")
+        val json = getJson(url)
+        val items = flat(json.dataOrSelf(), "melolo")
+        if (items.isEmpty()) error("API Melolo merespons, tetapi daftar drama kosong")
         return HomeBundle(items, items.shuffled(), items.reversed(), page, page < 5)
     }
 
@@ -1179,6 +1192,7 @@ private class DramakuRepository {
         val base = apiBase(d.platform)
         val url = when(d.platform) {
             "moviebox" -> "$base/subject/get?subjectId=${enc(d.id)}&lang=id"
+            "melolo" -> "$base/book?id=${enc(d.id)}&lang=id"
             else -> "$base/detail?id=${enc(d.id)}&lang=id"
         }
         val raw = runCatching { getJson(url).dataOrSelf() }.getOrNull() as? JSONObject ?: JSONObject()
@@ -1205,7 +1219,19 @@ private class DramakuRepository {
                 }
             }
             .build()
-        client.newCall(req).execute().use { r -> JSONObject(r.body?.string() ?: "{}") }
+        client.newCall(req).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                error("HTTP ${response.code} dari ${response.request.url.encodedPath}")
+            }
+            if (body.isBlank()) error("Respons API kosong dari ${response.request.url.encodedPath}")
+            runCatching { JSONObject(body) }.getOrElse {
+                throw IllegalStateException(
+                    "Respons API bukan JSON dari ${response.request.url.encodedPath}",
+                    it
+                )
+            }
+        }
     }
 
     private fun homeUrls(p: String, sp: Int): List<String> {
@@ -1244,33 +1270,33 @@ private class LocalStore(ctx: Context) {
 
 private fun flat(any: Any?, fp: String): List<Drama> {
     val out = mutableListOf<Drama>()
-    if (any == null) return out
-    when (any) {
-        is JSONArray -> {
-            for (i in 0 until any.length()) {
-                val obj = any.optJSONObject(i) ?: continue
-                val nested = flat(obj, fp)
-                if (nested.isNotEmpty()) out.addAll(nested) else {
-                    val d = normalize(obj, fp)
-                    if (d.id.isNotBlank() && d.title.isNotBlank()) out.add(d)
+
+    fun visit(value: Any?, depth: Int) {
+        // Proteksi jika respons API rusak atau terlalu dalam.
+        if (value == null || value == JSONObject.NULL || depth > 40) return
+
+        when (value) {
+            is JSONArray -> {
+                for (i in 0 until value.length()) visit(value.opt(i), depth + 1)
+            }
+            is JSONObject -> {
+                // Coba object saat ini, lalu telusuri SEMUA child. Dengan begitu wrapper
+                // baru seperti Melolo `cell -> cell_data -> books` tetap terbaca.
+                val drama = normalize(value, fp)
+                if (drama.id.isNotBlank() && drama.title.isNotBlank()) out.add(drama)
+
+                val keys = value.keys()
+                while (keys.hasNext()) {
+                    when (val child = value.opt(keys.next())) {
+                        is JSONObject, is JSONArray -> visit(child, depth + 1)
+                    }
                 }
             }
         }
-        is JSONObject -> {
-            var found = false
-            val listKeys = listOf("books", "subjects", "items", "records", "cell_data", "cells", "data", "book_tab_infos", "list", "trending", "popular", "newest")
-            for (k in listKeys) {
-                val sub = any.opt(k) ?: continue
-                val res = flat(sub, fp)
-                if (res.isNotEmpty()) { out.addAll(res); found = true }
-            }
-            if (!found) {
-                val d = normalize(any, fp)
-                if (d.id.isNotBlank() && d.title.isNotBlank()) out.add(d)
-            }
-        }
     }
-    return out.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.platform + "|" + it.id }
+
+    visit(any, 0)
+    return out.distinctBy { it.platform + "|" + it.id }
 }
 
 private fun normalize(o: JSONObject, fp: String) = Drama(
