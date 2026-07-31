@@ -3338,20 +3338,29 @@ private fun flat(any: Any?, fp: String): List<Drama> {
     when (any) {
         is JSONArray -> any.objects().forEach { o ->
             val b = o.optJSONArray("books")
-            if (b != null) out += flat(b, fp) else out += flat(o, fp)
+            if (b != null && b.length() > 0) out += flat(b, fp) else out += flat(o, fp)
         }
         is JSONObject -> {
             var foundContainer = false
-            if (any.optJSONObject("cell") != null) { out += flat(any.optJSONObject("cell")?.optJSONArray("cell_data"), fp); foundContainer = true }
-            if (any.optJSONArray("book_tab_infos") != null) { any.optJSONArray("book_tab_infos")!!.objects().forEach { tab -> out += flat(tab.optJSONArray("cells"), fp) }; foundContainer = true }
-            if (any.optJSONArray("cells") != null) { any.optJSONArray("cells")!!.objects().forEach { cl -> out += flat(cl.optJSONArray("cell_data"), fp); out += flat(cl.optJSONArray("books"), fp) }; foundContainer = true }
-            if (any.optJSONArray("cell_data") != null) { any.optJSONArray("cell_data")!!.objects().forEach { cd -> out += flat(cd.optJSONArray("books"), fp) }; foundContainer = true }
-            if (any.optJSONArray("books") != null) { out += flat(any.optJSONArray("books"), fp); foundContainer = true }
-            if (any.optJSONArray("items") != null) { out += flat(any.optJSONArray("items"), fp); foundContainer = true }
-            if (any.optJSONArray("subjects") != null) { out += flat(any.optJSONArray("subjects"), "moviebox"); foundContainer = true }
-            if (any.optJSONArray("results") != null) { any.optJSONArray("results")!!.objects().forEach { r -> out += flat(r.optJSONArray("subjects"), "moviebox") }; foundContainer = true }
+            val cell = any.optJSONObject("cell")
+            if (cell != null) { out += flat(cell.optJSONArray("cell_data"), fp); foundContainer = true }
+            val tabs = any.optJSONArray("book_tab_infos")
+            if (tabs != null && tabs.length() > 0) { tabs.objects().forEach { tab -> out += flat(tab.optJSONArray("cells"), fp) }; foundContainer = true }
+            val cells = any.optJSONArray("cells")
+            if (cells != null && cells.length() > 0) { cells.objects().forEach { cl -> out += flat(cl.optJSONArray("cell_data"), fp); out += flat(cl.optJSONArray("books"), fp) }; foundContainer = true }
+            val cd = any.optJSONArray("cell_data")
+            if (cd != null && cd.length() > 0) { cd.objects().forEach { item -> out += flat(item.optJSONArray("books"), fp); out += flat(item.optJSONObject("book"), fp) }; foundContainer = true }
+            val books = any.optJSONArray("books")
+            if (books != null && books.length() > 0) { out += flat(books, fp); foundContainer = true }
+            val items = any.optJSONArray("items")
+            if (items != null && items.length() > 0) { out += flat(items, fp); foundContainer = true }
+            val subjects = any.optJSONArray("subjects")
+            if (subjects != null && subjects.length() > 0) { out += flat(subjects, "moviebox"); foundContainer = true }
+            val results = any.optJSONArray("results")
+            if (results != null && results.length() > 0) { results.objects().forEach { r -> out += flat(r.optJSONArray("subjects"), "moviebox") }; foundContainer = true }
             if (any.has("trending") || any.has("popular") || any.has("newest")) { listOf("trending", "popular", "newest").forEach { k -> out += flat(any.optJSONArray(k), "dramabox") }; foundContainer = true }
-            if (any.optJSONObject("classifyBookList")?.optJSONArray("records") != null) { out += flat(any.optJSONObject("classifyBookList")?.optJSONArray("records"), "dramabox"); foundContainer = true }
+            val cb = any.optJSONObject("classifyBookList")?.optJSONArray("records")
+            if (cb != null && cb.length() > 0) { out += flat(cb, "dramabox"); foundContainer = true }
             if (!foundContainer) {
                 out += normalize(any, fp)
             }
