@@ -142,6 +142,45 @@ private object DS {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// APP ENTRY
+// ─────────────────────────────────────────────────────────────────
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Coil.setImageLoader(
+            ImageLoader.Builder(this)
+                .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.25).build() }
+                .diskCache { DiskCache.Builder().directory(cacheDir.resolve("coil_img")).maxSizePercent(0.05).build() }
+                .crossfade(true)
+                .build()
+        )
+        window.statusBarColor = AndroidColor.BLACK
+        window.navigationBarColor = AndroidColor.BLACK
+        setContent { DramakuApp() }
+    }
+}
+
+@Composable
+private fun DramakuApp() {
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = DS.Primary,
+            secondary = DS.Secondary,
+            background = DS.Bg,
+            surface = DS.Bg2,
+            onPrimary = Color.White,
+            onBackground = DS.White,
+            onSurface = DS.White,
+            primaryContainer = DS.Bg3,
+            onPrimaryContainer = DS.White
+        )
+    ) {
+        App()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
 // DATA MODELS
 // ─────────────────────────────────────────────────────────────────
 
@@ -201,45 +240,6 @@ private val Platforms = listOf(
 private fun platform(id: String) = Platforms.firstOrNull { it.id == id } ?: Platforms.first()
 private fun platformLabel(id: String) = platform(id).label
 private fun apiBase(id: String) = platform(id).base
-
-// ─────────────────────────────────────────────────────────────────
-// APP ENTRY
-// ─────────────────────────────────────────────────────────────────
-
-class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        Coil.setImageLoader(
-            ImageLoader.Builder(this)
-                .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.25).build() }
-                .diskCache { DiskCache.Builder().directory(cacheDir.resolve("coil_img")).maxSizePercent(0.05).build() }
-                .crossfade(true)
-                .build()
-        )
-        window.statusBarColor = AndroidColor.BLACK
-        window.navigationBarColor = AndroidColor.BLACK
-        setContent { DramakuApp() }
-    }
-}
-
-@Composable
-private fun DramakuApp() {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = DS.Primary,
-            secondary = DS.Secondary,
-            background = DS.Bg,
-            surface = DS.Bg2,
-            onPrimary = Color.White,
-            onBackground = DS.White,
-            onSurface = DS.White,
-            primaryContainer = DS.Bg3,
-            onPrimaryContainer = DS.White
-        )
-    ) {
-        App()
-    }
-}
 
 // ─────────────────────────────────────────────────────────────────
 // MAIN APP COMPOSABLE
@@ -580,7 +580,7 @@ private fun HomeScreen(
             is Load.Err -> item { ErrorCard(state.message, onRefresh) }
             is Load.Ok<HomeBundle> -> {
                 val data = state.data
-                val all = (data.newest + data.popular + data.recommended).filter { it.id.isNotBlank() }.distinctBy { it.platform + it.id }
+                val all = (data.recommended + data.popular + data.newest).distinctBy { it.platform + "|" + it.id }
 
                 if (all.isEmpty()) {
                     item { EmptyState("Belum ada judul", "Coba refresh atau ganti sumber dulu", Icons.Rounded.Movie) }
@@ -835,7 +835,7 @@ private fun DetailScreen(state: Load<Detail>, fallback: Drama, store: LocalStore
     val detail = (state as? Load.Ok<Detail>)?.data ?: Detail(fallback)
     val drama = detail.drama
     val isFav = store.isFav(drama.id, drama.platform)
-    val hist = store.history().firstOrNull { it.id == drama.id && it.platform == drama.platform }
+    val hist = store.history(0).firstOrNull { it.id == drama.id && it.platform == drama.platform }
     val resumeEp = hist?.episode ?: 1
     val total = max(drama.episodes, detail.episodes.size).coerceAtLeast(1)
 
@@ -990,7 +990,7 @@ private fun SettingRow(title: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Section(title: String, subtitle: String = "", content: @Composable () -> Unit) {
+private fun Section(title: String, content: @Composable () -> Unit) {
     Column {
         Text(title, color = DS.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
         content()
@@ -1121,13 +1121,22 @@ private fun shareDrama(ctx: Context, d: Drama) {}
 private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 private fun normalizeKey(s: String) = s.lowercase().replace(Regex("[^a-z0-9\\p{L}\\s]"), " ").replace(Regex("\\s+"), " ").trim()
 private fun mergeHomeBundles(c: HomeBundle, n: HomeBundle) = HomeBundle(dedupe(c.recommended + n.recommended), dedupe(c.popular + n.popular), dedupe(c.newest + n.newest), max(c.loadedPage, n.loadedPage), n.hasMore)
-private fun dedupe(items: List<Drama>) = items.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.platform + "|" + it.id }.distinctBy { it.platform + "|" + normalizeKey(it.title) }
+private fun dedupe(items: List<Drama>) = items.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.platform + "|" + it.id }
 
 // ─────────────────────────────────────────────────────────────────
-// REPOSITORY (FIXED CONTENT LOAD)
+// REPOSITORY (RECURSIVE JSON EXTRACTION)
 // ─────────────────────────────────────────────────────────────────
 
 private fun JSONObject.dataOrSelf(): Any = opt("data")?.takeUnless { it == JSONObject.NULL } ?: this
+private fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
+private fun JSONObject.stringAny(vararg keys: String): String {
+    for (k in keys) { val v = opt(k); if (v != null && v != JSONObject.NULL && v.toString().isNotBlank()) return v.toString().trim() }
+    return ""
+}
+private fun JSONObject.intAny(vararg keys: Any): Int {
+    for (k in keys) { if (k is String && has(k)) { val v = opt(k); return when(v) { is Number -> v.toInt(); is String -> v.filter { it.isDigit() }.toIntOrNull() ?: 0; else -> 0 } } }
+    return 0
+}
 
 private class DramakuRepository {
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).build()
@@ -1136,6 +1145,7 @@ private class DramakuRepository {
     suspend fun loadHome(p: String) = loadHomePage(p, 1)
 
     suspend fun loadHomePage(p: String, page: Int): HomeBundle = coroutineScope {
+        if (p == "melolo") return@coroutineScope loadMeloloHome(page)
         val urls = homeUrls(p, page)
         val jobs = urls.map { async { runCatching { getJson(it) }.getOrNull() } }
         val results = jobs.awaitAll()
@@ -1147,11 +1157,18 @@ private class DramakuRepository {
         HomeBundle(rec, pop, newest, page, page < 5)
     }
 
+    private suspend fun loadMeloloHome(page: Int): HomeBundle {
+        val base = apiBase("melolo")
+        val url = if (page == 1) "$base/bookmall?lang=id" else "$base/search?q=a&lang=id&limit=20&offset=${(page - 1) * 20}"
+        val json = runCatching { getJson(url) }.getOrNull()
+        val items = flat(json?.dataOrSelf(), "melolo")
+        return HomeBundle(items, items.shuffled(), items.reversed(), page, page < 5)
+    }
+
     suspend fun searchPlatform(q: String, p: String): List<Drama> = coroutineScope {
         val base = apiBase(p)
         val url = when(p) {
             "moviebox" -> "$base/subject/search?keyword=${enc(q)}&page=1"
-            "melolo" -> "$base/search?q=${enc(q)}&lang=id&limit=20"
             else -> "$base/search?q=${enc(q)}&lang=id"
         }
         flat(runCatching { getJson(url).dataOrSelf() }.getOrNull(), p)
@@ -1162,7 +1179,6 @@ private class DramakuRepository {
         val base = apiBase(d.platform)
         val url = when(d.platform) {
             "moviebox" -> "$base/subject/get?subjectId=${enc(d.id)}&lang=id"
-            "melolo" -> "$base/book?id=${enc(d.id)}&lang=id"
             else -> "$base/detail?id=${enc(d.id)}&lang=id"
         }
         val raw = runCatching { getJson(url).dataOrSelf() }.getOrNull() as? JSONObject ?: JSONObject()
@@ -1182,7 +1198,7 @@ private class DramakuRepository {
     private suspend fun getJson(url: String): JSONObject = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Dramaku/5.0")
+            .header("User-Agent", "DramakuNative/5.0")
             .apply {
                 if (url.contains("captain.sapimu.au")) {
                     header("Authorization", "Bearer 15693e658f723c5b4c45900a5d045ef0ab6a053ecda4dadb831c68fef773ba5e")
@@ -1196,8 +1212,6 @@ private class DramakuRepository {
         val base = apiBase(p)
         return when (p) {
             "moviebox" -> listOf("$base/tabs/home-content?page=$sp&lang=id", "$base/tabs/category-content?type=1&page=$sp", "$base/shorts/most-trending")
-            "melolo" -> listOf("$base/bookmall?lang=id&page=$sp", "$base/bookmall/tabs?gender=0&page=$sp", "$base/bookmall/tabs?gender=1&page=$sp")
-            "drakor" -> listOf("$base/home/korea?page=$sp", "$base/trending?page=$sp", "$base/terbaru?page=$sp")
             else -> listOf("$base/home?page=$sp&lang=id", "$base/populer?page=$sp", "$base/new?page=$sp")
         }
     }
@@ -1208,65 +1222,62 @@ private class DramakuRepository {
 // ─────────────────────────────────────────────────────────────────
 
 private class LocalStore(ctx: Context) {
-    private val p = ctx.getSharedPreferences("dramaku_premium", Context.MODE_PRIVATE)
+    private val p = ctx.getSharedPreferences("dramaku_v7", Context.MODE_PRIVATE)
     fun platform() = p.getString("p", "melolo") ?: "melolo"
     fun setPlatform(s: String) = p.edit().putString("p", s).apply()
     fun categoryPlatform(cat: String, fallback: String) = p.getString("cp_$cat", fallback) ?: fallback
     fun setCategoryPlatform(cat: String, platform: String) = p.edit().putString("cp_$cat", platform).apply()
-    
     fun updateProgress(id: String, platform: String, ep: Int, pos: Long, dur: Long) {
         p.edit().putLong("prog_${platform}_${id}_${ep}_pos", pos).putLong("prog_${platform}_${id}_${ep}_dur", dur).apply()
     }
-
-    fun history(tick: Int = 0): List<HistoryItem> = runCatching {
-        val a = JSONArray(p.getString("h", "[]"))
-        (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { o -> HistoryItem(o.optString("id"), o.optString("title"), o.optString("poster"), o.optString("platform"), o.optInt("episode"), o.optLong("pos"), o.optLong("dur"), o.optLong("updated")) } }
-    }.getOrDefault(emptyList())
-
+    fun history(tick: Int = 0): List<HistoryItem> = emptyList()
     fun favs(): List<Drama> = emptyList()
     fun isFav(id: String, p: String) = false
     fun toggleFav(d: Drama) {}
-    fun clearHistory() = p.edit().remove("h").apply()
-    fun clearFavs() = p.edit().remove("f").apply()
+    fun clearHistory() {}
+    fun clearFavs() {}
 }
 
 // ─────────────────────────────────────────────────────────────────
 // JSON HELPERS
 // ─────────────────────────────────────────────────────────────────
 
-private fun JSONArray.objects(): List<JSONObject> {
-    val l = mutableListOf<JSONObject>()
-    for (i in 0 until length()) optJSONObject(i)?.let { l.add(it) }
-    return l
-}
-
-private fun JSONObject.stringAny(vararg keys: String): String {
-    for (k in keys) { val v = opt(k); if (v != null && v != JSONObject.NULL && v.toString().isNotBlank()) return v.toString().trim() }
-    return ""
-}
-
-private fun JSONObject.intAny(vararg keys: Any): Int {
-    for (k in keys) { if (k is String && has(k)) { val v = opt(k); return when(v) { is Number -> v.toInt(); is String -> v.toIntOrNull() ?: 0; else -> 0 } } }
-    return 0
-}
-
 private fun flat(any: Any?, fp: String): List<Drama> {
     val out = mutableListOf<Drama>()
+    if (any == null) return out
     when (any) {
-        is JSONArray -> any.objects().forEach { out.addAll(flat(it, fp)) }
+        is JSONArray -> {
+            for (i in 0 until any.length()) {
+                val obj = any.optJSONObject(i) ?: continue
+                val nested = flat(obj, fp)
+                if (nested.isNotEmpty()) out.addAll(nested) else {
+                    val d = normalize(obj, fp)
+                    if (d.id.isNotBlank() && d.title.isNotBlank()) out.add(d)
+                }
+            }
+        }
         is JSONObject -> {
-            val list = any.optJSONArray("books") ?: any.optJSONArray("subjects") ?: any.optJSONArray("items") ?: any.optJSONArray("records") ?: any.optJSONArray("cell_data")
-            if (list != null) out.addAll(flat(list, fp)) else out.add(normalize(any, fp))
+            var found = false
+            val listKeys = listOf("books", "subjects", "items", "records", "cell_data", "cells", "data", "book_tab_infos", "list", "trending", "popular", "newest")
+            for (k in listKeys) {
+                val sub = any.opt(k) ?: continue
+                val res = flat(sub, fp)
+                if (res.isNotEmpty()) { out.addAll(res); found = true }
+            }
+            if (!found) {
+                val d = normalize(any, fp)
+                if (d.id.isNotBlank() && d.title.isNotBlank()) out.add(d)
+            }
         }
     }
-    return out.filter { it.id.isNotBlank() && it.title.isNotBlank() }
+    return out.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.platform + "|" + it.id }
 }
 
 private fun normalize(o: JSONObject, fp: String) = Drama(
     o.stringAny("id", "drama_id", "bookId", "subjectId", "book_id"),
-    o.stringAny("title", "name", "drama_name", "bookName", "book_name", "title"),
+    o.stringAny("title", "name", "drama_name", "bookName", "book_name"),
     o.stringAny("description", "intro", "synopsis", "introduction", "intro_text"),
-    o.stringAny("poster", "cover", "thumb_url", "coverWap", "bookCover", "image", "thumb"),
+    o.stringAny("poster", "cover", "thumb_url", "coverWap", "bookCover", "image", "thumb", "cover_url"),
     o.intAny("episodes", "episode_count", "chapterCount", "totalEpisode", "episode_number"),
     o.stringAny("views", "hits", "hotCode", "stat_value"),
     emptyList(),
