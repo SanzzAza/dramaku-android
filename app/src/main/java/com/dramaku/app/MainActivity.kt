@@ -1968,12 +1968,6 @@ private fun SettingItem(title: String, subtitle: String, checked: Boolean, onChe
         }
     }
 }
-                    uncheckedBorderColor = DS.Bg4
-                )
-            )
-        }
-    }
-}
 
 @Composable
 private fun SettingRow(title: String, onClick: () -> Unit) {
