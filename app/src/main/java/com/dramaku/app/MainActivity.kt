@@ -1188,25 +1188,73 @@ private class DramakuRepository {
     }
 
     suspend fun loadDetailCached(d: Drama): Detail {
-        detailCache[d.platform + d.id]?.let { return it }
+        detailCache[d.platform + "|" + d.id]?.let { return it }
         val base = apiBase(d.platform)
+
+        if (d.platform == "melolo") {
+            // /book hanya berisi metadata. Daftar episode dan stream berada di /multi-video.
+            val multi = getJson("$base/multi-video?id=${enc(d.id)}&lang=id")
+            val series = multi.optJSONObject("series") ?: JSONObject()
+            val episodesJson = multi.optJSONArray("episodes") ?: JSONArray()
+            val episodes = episodesJson.objects().mapIndexed { index, item ->
+                EpisodeInfo(
+                    number = item.intAny("index", "episode").takeIf { it > 0 } ?: (index + 1),
+                    streaming = item.stringAny("stream_url", "videoPath", "url"),
+                    label = item.stringAny("title", "label")
+                )
+            }.distinctBy { it.number }
+            val total = max(
+                multi.intAny("total"),
+                max(series.intAny("episode_count"), episodes.size)
+            ).coerceAtLeast(1)
+            val parsed = normalize(series, d.platform)
+            val drama = parsed.copy(
+                id = d.id,
+                title = parsed.title.ifBlank { d.title },
+                description = parsed.description.ifBlank { d.description },
+                poster = parsed.poster.ifBlank { d.poster },
+                episodes = total
+            )
+            return Detail(drama, episodes.ifEmpty { (1..total).map { EpisodeInfo(it) } })
+                .also { detailCache[d.platform + "|" + d.id] = it }
+        }
+
         val url = when(d.platform) {
             "moviebox" -> "$base/subject/get?subjectId=${enc(d.id)}&lang=id"
-            "melolo" -> "$base/book?id=${enc(d.id)}&lang=id"
             else -> "$base/detail?id=${enc(d.id)}&lang=id"
         }
-        val raw = runCatching { getJson(url).dataOrSelf() }.getOrNull() as? JSONObject ?: JSONObject()
+        val raw = getJson(url).dataOrSelf() as? JSONObject ?: error("Format detail ${d.platform} tidak valid")
         val res = normalize(raw, d.platform)
         val epsArr = raw.optJSONArray("episodes") ?: raw.optJSONArray("video_list") ?: raw.optJSONArray("chapterList")
-        val eps = epsArr?.objects()?.mapIndexed { i, o -> EpisodeInfo(o.intAny("episode", "index", i + 1), o.stringAny("streaming", "url")) }.orEmpty()
-        return Detail(res.copy(id = d.id), eps).also { detailCache[d.platform + d.id] = it }
+        val eps = epsArr?.objects()?.mapIndexed { i, o ->
+            EpisodeInfo(
+                o.intAny("episode", "index").takeIf { it > 0 } ?: (i + 1),
+                o.stringAny("streaming", "stream_url", "url")
+            )
+        }.orEmpty()
+        return Detail(res.copy(id = d.id), eps).also { detailCache[d.platform + "|" + d.id] = it }
     }
 
     suspend fun resolveStreamCached(d: Detail, ep: Int, ds: Boolean): StreamResult {
         val base = apiBase(d.drama.platform)
+
+        if (d.drama.platform == "melolo") {
+            // Selalu ambil ulang karena signed URL Melolo dapat kedaluwarsa.
+            val multi = getJson("$base/multi-video?id=${enc(d.drama.id)}&lang=id")
+            val episodes = multi.optJSONArray("episodes")?.objects().orEmpty()
+            val selected = episodes.firstOrNull { it.intAny("index", "episode") == ep }
+                ?: episodes.getOrNull(ep - 1)
+                ?: error("Episode $ep Melolo tidak ditemukan")
+            val streamUrl = selected.stringAny("stream_url", "videoPath", "url")
+            if (streamUrl.isBlank()) error("Stream episode $ep Melolo kosong")
+            return StreamResult(streamUrl)
+        }
+
         val url = "$base/stream?id=${enc(d.drama.id)}&ep=$ep"
-        val json = runCatching { getJson(url).dataOrSelf() }.getOrNull() as? JSONObject ?: JSONObject()
-        return StreamResult(json.stringAny("url", "playUrl", "video_url"))
+        val json = getJson(url).dataOrSelf() as? JSONObject ?: error("Format stream tidak valid")
+        val streamUrl = json.stringAny("url", "playUrl", "video_url")
+        if (streamUrl.isBlank()) error("Stream episode $ep tidak tersedia")
+        return StreamResult(streamUrl)
     }
 
     private suspend fun getJson(url: String): JSONObject = withContext(Dispatchers.IO) {
@@ -1302,7 +1350,7 @@ private fun flat(any: Any?, fp: String): List<Drama> {
 private fun normalize(o: JSONObject, fp: String) = Drama(
     o.stringAny("id", "drama_id", "bookId", "subjectId", "book_id"),
     o.stringAny("title", "name", "drama_name", "bookName", "book_name"),
-    o.stringAny("description", "intro", "synopsis", "introduction", "intro_text"),
+    o.stringAny("description", "intro", "abstract", "synopsis", "introduction", "intro_text"),
     o.stringAny("poster", "cover", "thumb_url", "coverWap", "bookCover", "image", "thumb", "cover_url"),
     o.intAny("episodes", "episode_count", "chapterCount", "totalEpisode", "episode_number"),
     o.stringAny("views", "hits", "hotCode", "stat_value"),
