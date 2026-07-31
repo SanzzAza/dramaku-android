@@ -143,16 +143,16 @@ jobs:
             # Force PKCS12 key password to store password for Gradle signing reliability.
             export ANDROID_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
             ./gradlew assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}-release.apk"
-            echo "APK_PATH=app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}-release.apk" >> "$GITHUB_ENV"
-            echo "APK_NAME=Dramaku-v${VERSION_NAME}-release" >> "$GITHUB_ENV"
+            cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}.apk"
+            echo "APK_PATH=app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}.apk" >> "$GITHUB_ENV"
+            echo "APK_NAME=Dramaku-v${VERSION_NAME}" >> "$GITHUB_ENV"
             echo "APK_KIND=signed release" >> "$GITHUB_ENV"
           else
             echo "Building release APK..."
             ./gradlew assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}-release.apk"
-            echo "APK_PATH=app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}-release.apk" >> "$GITHUB_ENV"
-            echo "APK_NAME=Dramaku-v${VERSION_NAME}-release" >> "$GITHUB_ENV"
+            cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}.apk"
+            echo "APK_PATH=app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}.apk" >> "$GITHUB_ENV"
+            echo "APK_NAME=Dramaku-v${VERSION_NAME}" >> "$GITHUB_ENV"
             echo "APK_KIND=release" >> "$GITHUB_ENV"
           fi
 
