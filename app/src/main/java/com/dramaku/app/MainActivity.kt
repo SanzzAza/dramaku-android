@@ -2506,6 +2506,7 @@ private class DramakuRepository {
             o?.optJSONObject("subtitle")?.stringAny("url")
                 ?: o?.optJSONArray("extCaptions")?.optJSONObject(0)?.stringAny("url", "src")
                 ?: o?.stringAny("subtitle", "caption")
+                ?: ""
         )
         fun codecOf(o: JSONObject?): String = o?.stringAny("codecName", "codec").orEmpty().lowercase()
         suspend fun mbJson(url: String): JSONObject? {
@@ -2669,8 +2670,8 @@ private class DramakuRepository {
         val json: JSONObject = if (p == "moviebox") {
             val res1 = runCatching { getJson(url) }.getOrNull()
             val hasData = res1?.optJSONObject("data") != null && res1.optJSONObject("data")!!.length() > 0
-            if (hasData) {
-                res1!!
+            if (hasData && res1 != null) {
+                res1
             } else {
                 runCatching { getJson("${apiBase(p)}/shorts/info?subjectId=${enc(input.id)}&lang=id") }.getOrNull() ?: JSONObject()
             }
