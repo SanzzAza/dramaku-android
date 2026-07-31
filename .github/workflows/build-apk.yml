@@ -148,12 +148,12 @@ jobs:
             echo "APK_NAME=Dramaku-v${VERSION_NAME}-release" >> "$GITHUB_ENV"
             echo "APK_KIND=signed release" >> "$GITHUB_ENV"
           else
-            echo "Building release APK signed with debug key fallback..."
+            echo "Building release APK..."
             ./gradlew assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}-release-debugkey.apk"
-            echo "APK_PATH=app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}-release-debugkey.apk" >> "$GITHUB_ENV"
-            echo "APK_NAME=Dramaku-v${VERSION_NAME}-release-debugkey" >> "$GITHUB_ENV"
-            echo "APK_KIND=release signed with debug key fallback" >> "$GITHUB_ENV"
+            cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}-release.apk"
+            echo "APK_PATH=app/build/outputs/apk/final/Dramaku-v${VERSION_NAME}-release.apk" >> "$GITHUB_ENV"
+            echo "APK_NAME=Dramaku-v${VERSION_NAME}-release" >> "$GITHUB_ENV"
+            echo "APK_KIND=release" >> "$GITHUB_ENV"
           fi
 
       - name: Upload APK Artifact
