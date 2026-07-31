@@ -142,6 +142,46 @@ private object DS {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// DATA MODELS
+// ─────────────────────────────────────────────────────────────────
+
+private enum class Tab(val label: String, val icon: ImageVector, val showNav: Boolean = true) {
+    Clips("Cuplikan", Icons.Rounded.PlayCircle, true),
+    Home("Beranda", Icons.Rounded.Home),
+    Rewards("Hadiah", Icons.Rounded.CardGiftcard, false),
+    Library("Koleksi", Icons.Rounded.Bookmark),
+    Profile("Profil", Icons.Rounded.Person),
+    Search("Cari", Icons.Rounded.Search)
+}
+
+private data class PlatformInfo(val id: String, val label: String, val base: String, val logoUrl: String = "", val logoRes: Int = 0)
+private data class Drama(
+    val id: String, val title: String, val description: String = "", val poster: String = "",
+    val episodes: Int = 0, val views: String = "", val tags: List<String> = emptyList(),
+    val platform: String = "melolo", val subjectType: Int = 1
+)
+private data class EpisodeInfo(val number: Int, val streaming: String = "", val label: String = "", val locked: Boolean = false)
+private data class Detail(val drama: Drama, val episodes: List<EpisodeInfo> = emptyList())
+private data class HomeBundle(val recommended: List<Drama>, val popular: List<Drama>, val newest: List<Drama>, val loadedPage: Int = 1, val hasMore: Boolean = true)
+private data class CategorySignal(val label: String, val value: String, val icon: ImageVector, val color: Color)
+private data class StreamResult(val url: String, val subtitle: String = "")
+private data class CachedStream(val result: StreamResult, val expiresAtMs: Long)
+private data class PlayerSession(val detail: Detail, val startEpisode: Int)
+private data class HistoryItem(
+    val id: String, val title: String, val poster: String, val platform: String,
+    val episode: Int, val pos: Long = 0L, val dur: Long = 0L, val updated: Long = System.currentTimeMillis()
+) {
+    val pct: Int get() = if (dur > 0) min(99, max(0, ((pos * 100) / dur).toInt())) else 0
+}
+
+private sealed class Load<out T> {
+    object Idle : Load<Nothing>()
+    object Loading : Load<Nothing>()
+    data class Ok<T>(val data: T) : Load<T>()
+    data class Err(val message: String) : Load<Nothing>()
+}
+
+// ─────────────────────────────────────────────────────────────────
 // APP ENTRY
 // ─────────────────────────────────────────────────────────────────
 
@@ -178,46 +218,6 @@ private fun DramakuApp() {
     ) {
         App()
     }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// DATA MODELS
-// ─────────────────────────────────────────────────────────────────
-
-private enum class Tab(val label: String, val icon: ImageVector, val showNav: Boolean = true) {
-    Clips("Cuplikan", Icons.Rounded.PlayCircle, false),
-    Home("Beranda", Icons.Rounded.Home),
-    Rewards("Hadiah", Icons.Rounded.CardGiftcard, false),
-    Library("Koleksi", Icons.Rounded.Bookmark),
-    Profile("Profil", Icons.Rounded.Person),
-    Search("Cari", Icons.Rounded.Search)
-}
-
-private data class PlatformInfo(val id: String, val label: String, val base: String, val logoUrl: String = "", val logoRes: Int = 0)
-private data class Drama(
-    val id: String, val title: String, val description: String = "", val poster: String = "",
-    val episodes: Int = 0, val views: String = "", val tags: List<String> = emptyList(),
-    val platform: String = "melolo", val subjectType: Int = 1
-)
-private data class EpisodeInfo(val number: Int, val streaming: String = "", val label: String = "", val locked: Boolean = false)
-private data class Detail(val drama: Drama, val episodes: List<EpisodeInfo> = emptyList())
-private data class HomeBundle(val recommended: List<Drama>, val popular: List<Drama>, val newest: List<Drama>, val loadedPage: Int = 1, val hasMore: Boolean = true)
-private data class CategorySignal(val label: String, val value: String, val icon: ImageVector, val color: Color)
-private data class StreamResult(val url: String, val subtitle: String = "")
-private data class CachedStream(val result: StreamResult, val expiresAtMs: Long)
-private data class PlayerSession(val detail: Detail, val startEpisode: Int)
-private data class HistoryItem(
-    val id: String, val title: String, val poster: String, val platform: String,
-    val episode: Int, val pos: Long = 0L, val dur: Long = 0L, val updated: Long = System.currentTimeMillis()
-) {
-    val pct: Int get() = if (dur > 0) min(99, max(0, ((pos * 100) / dur).toInt())) else 0
-}
-
-private sealed class Load<out T> {
-    object Idle : Load<Nothing>()
-    object Loading : Load<Nothing>()
-    data class Ok<T>(val data: T) : Load<T>()
-    data class Err(val message: String) : Load<Nothing>()
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -279,21 +279,6 @@ private fun App() {
     var pendingResume by remember { mutableStateOf<HistoryItem?>(null) }
     var category by remember { mutableStateOf<HomeCategory?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-
-    val playerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val data = result.data
-        if (result.resultCode == Activity.RESULT_OK && data != null) {
-            val id = data.getStringExtra(PlayerActivity.RESULT_DRAMA_ID).orEmpty()
-            val pid = data.getStringExtra(PlayerActivity.RESULT_PLATFORM).orEmpty()
-            val ep = data.getIntExtra(PlayerActivity.RESULT_EPISODE, 1)
-            val pos = data.getLongExtra(PlayerActivity.RESULT_POSITION, 0L)
-            val dur = data.getLongExtra(PlayerActivity.RESULT_DURATION, 0L)
-            if (id.isNotBlank() && pid.isNotBlank()) {
-                store.updateProgress(id, pid, ep, pos, dur)
-                dataTick++
-            }
-        }
-    }
 
     fun openPlayer(d: Detail, ep: Int) { playerSession = PlayerSession(d, ep) }
 
@@ -389,19 +374,17 @@ private fun App() {
                                 remoteError = remoteError, loadingMore = homeLoadingMore,
                                 loadMoreError = homeAppendError, onLoadMore = ::loadMore,
                                 onPlatform = {
-                                    val allowed = remoteConfig?.isPlatformEnabled(it) ?: true
-                                    if (!allowed) Toast.makeText(ctx, "${platformLabel(it)}: Maintenance", Toast.LENGTH_SHORT).show()
-                                    else { selPlatform = it; store.setPlatform(it); store.setCategoryPlatform(activeCat.id, it); refreshKey++ }
+                                    selPlatform = it; store.setPlatform(it); store.setCategoryPlatform(activeCat.id, it); refreshKey++
                                 },
                                 onRefresh = { refreshKey++ }, onDrama = { selectedDrama = it },
                                 onSearch = { tab = Tab.Search },
                                 onRandom = {
-                                    val b = (homeState as? Load.Ok)?.data
+                                    val b = (homeState as? Load.Ok<HomeBundle>)?.data
                                     val pool = (b?.popular.orEmpty() + b?.newest.orEmpty() + b?.recommended.orEmpty()).filter { it.id.isNotBlank() }
                                     if (pool.isNotEmpty()) selectedDrama = pool.random()
                                 },
                                 onClips = {
-                                    val b = (homeState as? Load.Ok)?.data
+                                    val b = (homeState as? Load.Ok<HomeBundle>)?.data
                                     val pool = (b?.popular.orEmpty() + b?.newest.orEmpty() + b?.recommended.orEmpty())
                                         .filter { it.id.isNotBlank() && it.poster.isNotBlank() }.distinctBy { it.platform + it.id }
                                     if (pool.isNotEmpty()) clipFeedItems = pool.shuffled().take(80)
@@ -418,7 +401,6 @@ private fun App() {
                             )
                             Tab.Search -> SearchScreen(repo, store, selPlatform, onDrama = { selectedDrama = it }, onBack = { tab = Tab.Home }, dataTick = dataTick, bump = { dataTick++ })
                             Tab.Clips -> ClipsScreen(homeState, repo, store, onBack = { tab = Tab.Home }, onWatchFull = { playerSession = PlayerSession(it, 1) }, onOpenDetail = { selectedDrama = it })
-                            Tab.Rewards -> PlaceholderScreen("Hadiah", "Fitur reward sedang disiapkan", Icons.Rounded.CardGiftcard)
                             Tab.Library -> LibraryScreen(
                                 store, dataTick,
                                 onDrama = { selectedDrama = it },
@@ -432,6 +414,7 @@ private fun App() {
                                 }
                             )
                             Tab.Profile -> ProfileScreen(store, dataTick, bump = { dataTick++ })
+                            else -> {}
                         }
                     }
                 }
@@ -549,7 +532,7 @@ private fun HomeScreen(
             val last = info.visibleItemsInfo.lastOrNull()
             last != null && last.index >= info.totalItemsCount - 4
         }.collect { near ->
-            val data = (state as? Load.Ok)?.data ?: return@collect
+            val data = (state as? Load.Ok<HomeBundle>)?.data ?: return@collect
             if (near && data.hasMore && !loadingMore) onLoadMore()
         }
     }
@@ -588,7 +571,7 @@ private fun HomeScreen(
                 } else {
                     item { HeroCard(all.first(), onDrama) }
                     if (history.isNotEmpty()) item {
-                        Section("Lanjutkan menonton", "Lanjut dari tempat terakhir") {
+                        Section("Lanjutkan menonton") {
                             LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(history.take(8), key = { it.platform + it.id }) { watched -> ContinueCard(watched, onResume) }
                             }
@@ -655,6 +638,7 @@ private fun CategoryHomeScreen(onSelect: (HomeCategory) -> Unit, onSettings: () 
                     Text("Short Drama", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
                     Text("Ribuan episode pendek siap menemani harimu.", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
                 }
+                Icon(Icons.Rounded.PlayArrow, null, tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(140.dp).align(Alignment.CenterEnd).offset(x = 20.dp))
             }
 
             Spacer(Modifier.height(24.dp))
@@ -887,6 +871,26 @@ private fun DetailScreen(state: Load<Detail>, fallback: Drama, store: LocalStore
 }
 
 @Composable
+private fun ClipsScreen(state: Load<HomeBundle>, repo: DramakuRepository, store: LocalStore, onBack: () -> Unit, onWatchFull: (Detail) -> Unit, onOpenDetail: (Drama) -> Unit) {
+    when (state) {
+        Load.Loading, Load.Idle -> Box(Modifier.fillMaxSize().background(DS.Bg), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = DS.Primary); Spacer(Modifier.height(12.dp))
+                Text("Menyiapkan cuplikan...", color = DS.Text, fontWeight = FontWeight.Bold)
+            }
+        }
+        is Load.Err -> ErrorCard(state.message, onBack)
+        is Load.Ok<HomeBundle> -> {
+            val pool = remember(state.data) {
+                (state.data.popular + state.data.newest + state.data.recommended).filter { it.id.isNotBlank() && it.poster.isNotBlank() }.distinctBy { it.platform + it.id }.take(100)
+            }
+            if (pool.isEmpty()) PlaceholderScreen("Cuplikan", "Belum tersedia untuk platform ini", Icons.Rounded.PlayCircle)
+            else ClipFeedPlayer(pool, repo, store, onClose = onBack, onWatchFull = onWatchFull, onOpenDetail = onOpenDetail)
+        }
+    }
+}
+
+@Composable
 private fun SearchScreen(repo: DramakuRepository, store: LocalStore, currentPlatform: String, onDrama: (Drama) -> Unit, onBack: () -> Unit, dataTick: Int, bump: () -> Unit) {
     var q by remember { mutableStateOf("") }
     var state by remember { mutableStateOf<Load<List<Drama>>>(Load.Idle) }
@@ -970,7 +974,7 @@ private fun SettingRow(title: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Section(title: String, subtitle: String = "", content: @Composable () -> Unit) {
+private fun Section(title: String, content: @Composable () -> Unit) {
     Column {
         Text(title, color = DS.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
         content()
@@ -1007,7 +1011,49 @@ private fun EmptyState(t: String, s: String, i: ImageVector) {
 }
 
 @Composable
-private fun DetailMetaPill(text: String, accent: Color, filled: Boolean = false) {}
+private fun PlaceholderScreen(title: String, subtitle: String, icon: ImageVector) {
+    Box(Modifier.fillMaxSize().background(DS.Bg), contentAlignment = Alignment.Center) {
+        Surface(color = DS.Bg2, shape = RoundedCornerShape(28.dp), modifier = Modifier.padding(24.dp).border(1.dp, DS.Line, RoundedCornerShape(28.dp))) {
+            Column(Modifier.padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Surface(color = DS.PrimaryDim, shape = RoundedCornerShape(22.dp), modifier = Modifier.size(66.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = DS.Primary, modifier = Modifier.size(31.dp)) }
+                }
+                Spacer(Modifier.height(15.dp))
+                Text(title, color = DS.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                Text(subtitle, color = DS.Muted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 5.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ClipFeedPlayer(items: List<Drama>, repo: DramakuRepository, store: LocalStore, onClose: () -> Unit, onWatchFull: (Detail) -> Unit, onOpenDetail: (Drama) -> Unit) {
+    val ctx = LocalContext.current
+    val pager = rememberPagerState(pageCount = { items.size })
+    val player = remember { buildPlayer(ctx) }
+    
+    BackHandler { player.stop(); onClose() }
+    
+    LaunchedEffect(pager.currentPage) {
+        val drama = items[pager.currentPage]
+        val stream = runCatching { repo.resolveStreamCached(Detail(drama), 1, false) }.getOrNull()
+        if (stream != null) {
+            player.setMediaItem(MediaItem.fromUri(stream.url))
+            player.prepare()
+            player.play()
+        }
+    }
+    
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        VerticalPager(pager, Modifier.fillMaxSize()) { page ->
+            AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false } }, modifier = Modifier.fillMaxSize())
+        }
+        IconButton(onClick = { player.stop(); onClose() }, modifier = Modifier.padding(20.dp).align(Alignment.TopStart)) {
+            Icon(Icons.Rounded.Close, null, tint = Color.White)
+        }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1016,26 +1062,21 @@ private fun VerticalEpisodePlayer(detail: Detail, startEp: Int, repo: DramakuRep
     val total = max(detail.drama.episodes, detail.episodes.size).coerceAtLeast(1)
     val pager = rememberPagerState(initialPage = (startEp - 1).coerceIn(0, total - 1), pageCount = { total })
     val player = remember { buildPlayer(ctx) }
-    var error by remember { mutableStateOf<String?>(null) }
     
     BackHandler { player.stop(); onClose() }
     
     LaunchedEffect(pager.currentPage) {
         val ep = pager.currentPage + 1
-        error = null
         val res = runCatching { repo.resolveStreamCached(detail, ep, false) }.getOrNull()
         if (res != null) {
             player.setMediaItem(MediaItem.fromUri(res.url))
             player.prepare()
             player.play()
-        } else {
-            error = "Gagal memuat video"
         }
     }
     
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = true } }, modifier = Modifier.fillMaxSize())
-        if (error != null) Text(error!!, color = Color.White, modifier = Modifier.align(Alignment.Center))
         IconButton(onClick = { player.stop(); onClose() }, modifier = Modifier.padding(20.dp).align(Alignment.TopStart).background(Color.Black.copy(alpha = 0.5f), CircleShape)) {
             Icon(Icons.Rounded.Close, null, tint = Color.White)
         }
@@ -1051,30 +1092,27 @@ private fun SettingsOverlay(store: LocalStore, dataTick: Int, bump: () -> Unit, 
 }
 
 // ─────────────────────────────────────────────────────────────────
-// REPOSITORY & STORAGE LOGIC (RESTORED)
+// HELPERS
 // ─────────────────────────────────────────────────────────────────
 
-private fun extractStreamV2Url(json: JSONObject): String {
-    for (key in listOf("episodes", "list", "videoList")) {
-        val episodes = json.optJSONArray(key)?.objects().orEmpty()
-        for (ep in episodes) {
-            val cdnList = ep.optJSONArray("cdnList")?.objects().orEmpty()
-            for (cdn in cdnList) {
-                val paths = cdn.optJSONArray("videoPathList")?.objects().orEmpty()
-                val vp = paths.firstOrNull()?.stringAny("videoPath").orEmpty()
-                if (vp.isNotBlank()) return vp
-            }
-            val direct = ep.stringAny("playUrl", "url", "videoPath", "hls_url").orEmpty()
-            if (direct.isNotBlank()) return direct
-        }
-    }
-    return json.stringAny("url", "playUrl").orEmpty()
+private fun Context.isNetworkAvailable(): Boolean {
+    val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+    return cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
 }
+
+private fun buildPlayer(ctx: Context): ExoPlayer = ExoPlayer.Builder(ctx).build()
+private fun shareDrama(ctx: Context, d: Drama) {}
+private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
+private fun normalizeKey(s: String) = s.lowercase()
+private fun mergeHomeBundles(c: HomeBundle, n: HomeBundle) = n
+
+// ─────────────────────────────────────────────────────────────────
+// REPOSITORY
+// ─────────────────────────────────────────────────────────────────
 
 private class DramakuRepository {
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).build()
     private val detailCache = ConcurrentHashMap<String, Detail>()
-    private val streamCache = ConcurrentHashMap<String, CachedStream>()
 
     suspend fun loadHome(p: String) = loadHomePage(p, 1)
 
@@ -1096,18 +1134,18 @@ private class DramakuRepository {
         detailCache[d.platform + d.id]?.let { return it }
         val base = apiBase(d.platform)
         val url = "$base/detail?id=${enc(d.id)}&lang=id"
-        val json = getJson(url).optJSONObject("data") ?: JSONObject()
+        val json = runCatching { getJson(url).optJSONObject("data") }.getOrNull() ?: JSONObject()
         val res = normalize(json, d.platform)
         val epsArr = json.optJSONArray("episodes") ?: json.optJSONArray("video_list")
-        val eps = epsArr?.objects()?.mapIndexed { i, o -> EpisodeInfo(o.intAny("episode", i + 1), o.stringAny("streaming")) }.orEmpty()
+        val eps = epsArr?.objects()?.mapIndexed { i, o -> EpisodeInfo(o.optInt("episode", i + 1), o.optString("streaming")) }.orEmpty()
         return Detail(res, eps).also { detailCache[d.platform + d.id] = it }
     }
 
     suspend fun resolveStreamCached(d: Detail, ep: Int, ds: Boolean): StreamResult {
         val base = apiBase(d.drama.platform)
         val url = "$base/stream?id=${enc(d.drama.id)}&ep=$ep"
-        val json = getJson(url).optJSONObject("data") ?: JSONObject()
-        return StreamResult(json.stringAny("url", "playUrl", "video_url"))
+        val json = runCatching { getJson(url).optJSONObject("data") }.getOrNull() ?: JSONObject()
+        return StreamResult(json.optString("url"))
     }
 
     private suspend fun getJson(url: String): JSONObject = withContext(Dispatchers.IO) {
@@ -1116,12 +1154,21 @@ private class DramakuRepository {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// LOCAL STORE
+// ─────────────────────────────────────────────────────────────────
+
 private class LocalStore(ctx: Context) {
-    private val p = ctx.getSharedPreferences("dramaku_v2", Context.MODE_PRIVATE)
+    private val p = ctx.getSharedPreferences("dramaku_v3", Context.MODE_PRIVATE)
     fun platform() = p.getString("p", "melolo") ?: "melolo"
     fun setPlatform(s: String) = p.edit().putString("p", s).apply()
-    fun categoryPlatform(c: String, f: String) = p.getString("cp_$c", f) ?: f
-    fun setCategoryPlatform(c: String, platform: String) = p.edit().putString("cp_$c", platform).apply()
+    fun categoryPlatform(cat: String, fallback: String) = p.getString("cp_$cat", fallback) ?: fallback
+    fun setCategoryPlatform(cat: String, platform: String) = p.edit().putString("cp_$cat", platform).apply()
+    
+    fun updateProgress(id: String, platform: String, ep: Int, pos: Long, dur: Long) {
+        p.edit().putLong("prog_${platform}_${id}_${ep}_pos", pos).putLong("prog_${platform}_${id}_${ep}_dur", dur).apply()
+    }
+
     fun history(tick: Int = 0): List<HistoryItem> = emptyList()
     fun favs(): List<Drama> = emptyList()
     fun isFav(id: String, p: String) = false
@@ -1129,6 +1176,10 @@ private class LocalStore(ctx: Context) {
     fun clearHistory() {}
     fun clearFavs() {}
 }
+
+// ─────────────────────────────────────────────────────────────────
+// JSON HELPERS
+// ─────────────────────────────────────────────────────────────────
 
 private fun flat(any: Any?, fp: String): List<Drama> {
     val out = mutableListOf<Drama>()
@@ -1143,31 +1194,16 @@ private fun flat(any: Any?, fp: String): List<Drama> {
 }
 
 private fun normalize(o: JSONObject, fp: String) = Drama(
-    o.stringAny("id", "drama_id", "bookId"),
-    o.stringAny("title", "name", "drama_name", "bookName"),
-    o.stringAny("description", "intro", "synopsis"),
-    o.stringAny("poster", "cover", "thumb_url"),
-    o.intAny("episodes", "episode_count", "chapterCount"),
-    o.stringAny("views", "hits"),
+    o.optString("id"),
+    o.optString("title"),
+    o.optString("description"),
+    o.optString("poster"),
+    o.optInt("episodes"),
+    o.optString("views"),
     emptyList(),
     fp
 )
 
-private fun buildPlayer(ctx: Context) = ExoPlayer.Builder(ctx).build()
-private fun shareDrama(ctx: Context, d: Drama) {}
-private fun Context.isNetworkAvailable(): Boolean = true
-private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
-private fun normalizeKey(s: String) = s.lowercase()
-private fun mergeHomeBundles(c: HomeBundle, n: HomeBundle) = n
-
-private fun JSONObject.stringAny(vararg keys: String): String {
-    for (k in keys) { if (has(k)) return optString(k) }
-    return ""
-}
-private fun JSONObject.intAny(vararg keys: Any): Int {
-    for (k in keys) { if (k is String && has(k)) return optInt(k) }
-    return 0
-}
 private fun JSONArray.objects(): List<JSONObject> {
     val l = mutableListOf<JSONObject>()
     for (i in 0 until length()) optJSONObject(i)?.let { l.add(it) }
