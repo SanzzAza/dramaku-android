@@ -119,17 +119,17 @@ import kotlin.math.min
 // ─────────────────────────────────────────────────────────────────
 
 private object DS {
-    // Obsidian Cinema Dark — gelap ekosistem teater premium, elegan & nyaman di mata
-    val Bg = Color(0xFF08090E)
-    val Bg2 = Color(0xFF131622)
-    val Bg3 = Color(0xFF1C2132)
-    val Bg4 = Color(0xFF262D42)
+    // Warm dark palette: lebih kalem, tidak terlalu neon, dan nyaman untuk browsing lama.
+    val Bg = Color(0xFF0B0D12)
+    val Bg2 = Color(0xFF151821)
+    val Bg3 = Color(0xFF202432)
+    val Bg4 = Color(0xFF2C3142)
     val Line = Color(0x22FFFFFF)
 
-    // Brand — Cinema Rose Crimson (aksen merah teater mewah khas streaming global)
-    val Green = Color(0xFFE11D48)
-    val GreenDark = Color(0xFFBE123C)
-    val GreenDim = Color(0xFFE11D48).copy(alpha = 0.16f)
+    // Brand accent dibuat lebih grounded dan tidak terlalu menyala.
+    val Green = Color(0xFFFF5A6E)
+    val GreenDark = Color(0xFFE13D55)
+    val GreenDim = Color(0xFFFF5A6E).copy(alpha = 0.14f)
     val Warm = Color(0xFFF59E0B)
     val Sky = Color(0xFF38BDF8)
 
@@ -144,9 +144,9 @@ private object DS {
     val RedDim = Color(0xFFEF4444).copy(alpha = 0.12f)
     val Amber = Color(0xFFF59E0B)
 
-    // Gradients — sentuhan glassmorphism & cinematic depth
-    val GreenGrad = listOf(Color(0xFFE11D48), Color(0xFFFF4D6D))
-    val CardGrad = listOf(Color(0xFF1C2132), Color(0xFF131622))
+    // Gradients dibuat pendek dan halus agar tetap terasa native.
+    val GreenGrad = listOf(Color(0xFFFF5A6E), Color(0xFFFF7A5A))
+    val CardGrad = listOf(Color(0xFF202432), Color(0xFF151821))
     val OverlayBottom = listOf(Color.Transparent, Color(0xEE08090E))
     val OverlayFull = listOf(Color.Transparent, Color.Transparent, Color(0xCC08090E))
 }
@@ -208,6 +208,8 @@ private data class Drama(
 private data class EpisodeInfo(val number: Int, val streaming: String = "", val label: String = "", val locked: Boolean = false)
 private data class Detail(val drama: Drama, val episodes: List<EpisodeInfo> = emptyList())
 private data class HomeBundle(val recommended: List<Drama>, val popular: List<Drama>, val newest: List<Drama>, val loadedPage: Int = 1, val hasMore: Boolean = true)
+private data class CategorySignal(val label: String, val value: String, val icon: ImageVector, val color: Color)
+private data class CategoryArt(val posterColors: List<Color>, metric: String, tone: String)
 private data class StreamResult(val url: String, val subtitle: String = "")
 private data class CachedStream(val result: StreamResult, val expiresAtMs: Long)
 private data class PlayerSession(val detail: Detail, val startEpisode: Int)
@@ -482,49 +484,45 @@ private fun App() {
 
 @Composable
 private fun BottomNavBar(selected: Tab, onSelect: (Tab) -> Unit) {
-    Surface(
-        color = DS.Bg2.copy(alpha = 0.96f),
-        tonalElevation = 8.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(
-                Brush.horizontalGradient(listOf(Color.Transparent, DS.Line, Color.Transparent))
-            ))
+    Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Surface(
+            color = DS.Bg2.copy(alpha = 0.96f),
+            shape = RoundedCornerShape(28.dp),
+            tonalElevation = 8.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0x24FFFFFF), RoundedCornerShape(28.dp))
+        ) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Tab.values().filter { it.showNav }.forEach { tab ->
                     val active = tab == selected
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(18.dp))
+                            .weight(if (active) 1.22f else 1f)
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(if (active) DS.Green.copy(alpha = 0.18f) else Color.Transparent)
+                            .border(if (active) 1.dp else 0.dp, if (active) DS.Green.copy(alpha = 0.28f) else Color.Transparent, RoundedCornerShape(22.dp))
                             .clickable { onSelect(tab) }
-                            .padding(vertical = 4.dp)
+                            .padding(horizontal = 8.dp)
                     ) {
-                        Box(
-                            Modifier
-                                .size(width = 46.dp, height = 30.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (active) DS.GreenDim else Color.Transparent)
-                                .then(if (active) Modifier.border(1.dp, DS.Green.copy(alpha = 0.45f), RoundedCornerShape(14.dp)) else Modifier),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(tab.icon, tab.label, tint = if (active) DS.Green else DS.Hint, modifier = Modifier.size(22.dp))
+                        Icon(tab.icon, tab.label, tint = if (active) DS.Green else DS.Hint, modifier = Modifier.size(21.dp))
+                        if (active) {
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                tab.label,
+                                color = DS.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1
+                            )
                         }
-                        Spacer(Modifier.height(5.dp))
-                        Text(
-                            tab.label,
-                            color = if (active) DS.White else DS.Hint,
-                            fontSize = 11.sp,
-                            fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium,
-                            letterSpacing = 0.2.sp,
-                            maxLines = 1
-                        )
                     }
                 }
             }
@@ -571,7 +569,9 @@ private fun HomeScreen(
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().background(DS.Bg),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF07070B), DS.Bg, Color(0xFF0B111D)))),
         contentPadding = PaddingValues(bottom = 20.dp)
     ) {
         item {
@@ -682,14 +682,18 @@ private fun HomeScreen(
 private fun CategoryHomeScreen(onSelect: (HomeCategory) -> Unit, onSettings: () -> Unit) {
     val ctx = LocalContext.current
     val greeting = remember { Greetings.forHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) }
-    Box(Modifier.fillMaxSize().background(DS.Bg)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF10131A), DS.Bg, Color(0xFF12151D))))
+    ) {
         Box(
-            Modifier.align(Alignment.TopEnd).size(260.dp).offset(x = 100.dp, y = (-100).dp)
-                .clip(CircleShape).background(DS.Green.copy(alpha = 0.12f))
+            Modifier.align(Alignment.TopEnd).size(260.dp).offset(x = 92.dp, y = (-118).dp)
+                .clip(CircleShape).background(DS.Green.copy(alpha = 0.11f))
         )
         Box(
-            Modifier.align(Alignment.BottomStart).size(220.dp).offset(x = (-80).dp, y = 80.dp)
-                .clip(CircleShape).background(DS.Sky.copy(alpha = 0.08f))
+            Modifier.align(Alignment.BottomStart).size(240.dp).offset(x = (-120).dp, y = 86.dp)
+                .clip(CircleShape).background(DS.Sky.copy(alpha = 0.07f))
         )
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)
@@ -699,27 +703,26 @@ private fun CategoryHomeScreen(onSelect: (HomeCategory) -> Unit, onSettings: () 
                 BrandLogoMini(Modifier.size(46.dp))
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Dramaku", color = DS.White, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.4).sp)
-                        Spacer(Modifier.width(8.dp))
-                        Surface(color = DS.Green.copy(alpha = 0.18f), shape = RoundedCornerShape(50), modifier = Modifier.border(1.dp, DS.Green.copy(alpha = 0.4f), RoundedCornerShape(50))) {
-                            Text("PRO", color = DS.White, fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp))
-                        }
-                    }
+                    Text("Dramaku", color = DS.White, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.4).sp)
                     Spacer(Modifier.height(2.dp))
-                    Text("${greeting.text}, mau nonton apa hari ini?", color = DS.Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text("${greeting.text}, pilih tontonan yang pas.", color = DS.Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
                 HeaderCircleButton(Icons.Rounded.Settings, "Pengaturan", onSettings)
             }
 
             Spacer(Modifier.height(28.dp))
-            Text("Hiburan Tanpa Batas", color = DS.White, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.9).sp)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Pilih dunia drama favoritmu — dari short drama vertikal, serial Korea & China, hingga film layar lebar MovieBox.",
-                color = DS.Muted, fontSize = 13.sp, lineHeight = 19.sp
-            )
-            Spacer(Modifier.height(22.dp))
+            HeroIntroPanel(greeting.text)
+            Spacer(Modifier.height(18.dp))
+            CategorySignalStrip()
+            Spacer(Modifier.height(24.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f)) {
+                    Text("Pilih Kategori", color = DS.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp)
+                    Text("Mulai dari format favoritmu", color = DS.Muted, fontSize = 12.sp)
+                }
+                Text("3 pilihan", color = DS.Green, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Spacer(Modifier.height(14.dp))
 
             CategoryWideCard(
                 category = HomeCategory.ShortDrama,
@@ -785,6 +788,61 @@ private fun CategoryHomeScreen(onSelect: (HomeCategory) -> Unit, onSettings: () 
 }
 
 @Composable
+private fun HeroIntroPanel(greeting: String) {
+    Surface(
+        color = Color.Transparent,
+        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF1B1F2A), DS.Bg2)))
+            .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(28.dp))
+    ) {
+        Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(greeting, color = DS.Green, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(8.dp))
+                Text("Mau nonton apa?", color = DS.White, fontSize = 31.sp, lineHeight = 35.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1.0).sp)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Short drama, drama Asia, atau film — semuanya dipisah biar gampang dicari.",
+                    color = DS.Text, fontSize = 13.sp, lineHeight = 19.sp
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Box(Modifier.size(74.dp).clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(DS.GreenGrad)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(34.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategorySignalStrip() {
+    val signals = listOf(
+        CategorySignal("Format", "Rapi", Icons.Rounded.ViewAgenda, DS.Green),
+        CategorySignal("Update", "Cepat", Icons.Rounded.Update, DS.Sky),
+        CategorySignal("Nonton", "Praktis", Icons.Rounded.TouchApp, DS.Warm)
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        signals.forEach { signal ->
+            Surface(
+                color = Color(0x12FFFFFF),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.weight(1f).border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(18.dp))
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 13.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(signal.icon, null, tint = signal.color, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.height(7.dp))
+                    Text(signal.value, color = DS.White, fontSize = 12.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    Text(signal.label, color = DS.Muted, fontSize = 10.sp, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun BrandLogoMini(modifier: Modifier = Modifier) {
     Box(
         modifier
@@ -807,51 +865,114 @@ private fun CategoryWideCard(
     accent: Color,
     onClick: () -> Unit
 ) {
+    val art = remember(category.id, accent) {
+        CategoryArt(
+            posterColors = listOf(accent.copy(alpha = 0.95f), DS.Bg3, DS.Bg2),
+            metric = when (category) {
+                HomeCategory.ShortDrama -> "8 sumber"
+                HomeCategory.MovieDrama -> "Asia hits"
+                HomeCategory.MovieBox -> "1080P"
+                else -> "Soon"
+            },
+            tone = when (category) {
+                HomeCategory.ShortDrama -> "Cepat"
+                HomeCategory.MovieDrama -> "Maraton"
+                HomeCategory.MovieBox -> "Cinema"
+                else -> "Preview"
+            }
+        )
+    }
     Surface(
         color = Color.Transparent,
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(26.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(Brush.horizontalGradient(listOf(DS.Bg2, accent.copy(alpha = 0.12f))))
-            .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(26.dp))
+            .background(Brush.horizontalGradient(listOf(Color(0xFF181C26), DS.Bg2, accent.copy(alpha = 0.10f))))
+            .border(1.dp, Color(0x24FFFFFF), RoundedCornerShape(26.dp))
             .clickable(onClick = onClick)
     ) {
-        Row(Modifier.padding(horizontal = 18.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box {
             Box(
                 Modifier
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(accent.copy(alpha = 0.18f))
-                    .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, title, tint = accent, modifier = Modifier.size(26.dp))
-            }
-            Spacer(Modifier.width(15.dp))
-            Column(Modifier.weight(1f)) {
-                if (badgeText.isNotBlank()) {
-                    Text(badgeText, color = accent, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp)
-                    Spacer(Modifier.height(4.dp))
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, color = DS.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (category.comingSoon) { Spacer(Modifier.width(8.dp)); ComingSoonBadge() }
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(subtitle, color = DS.Muted, fontSize = 12.5.sp, lineHeight = 17.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            Spacer(Modifier.width(8.dp))
-            Box(
-                Modifier
-                    .size(36.dp)
+                    .align(Alignment.TopEnd)
+                    .size(120.dp)
+                    .offset(x = 34.dp, y = (-42).dp)
                     .clip(CircleShape)
-                    .background(accent.copy(alpha = 0.22f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Rounded.ArrowForward, null, tint = accent, modifier = Modifier.size(18.dp))
+                    .background(accent.copy(alpha = 0.10f))
+            )
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                CategoryPreviewArt(icon, title, accent, art)
+                Spacer(Modifier.width(15.dp))
+                Column(Modifier.weight(1f)) {
+                    if (badgeText.isNotBlank()) {
+                        Text(badgeText, color = accent, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.35.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(5.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, color = DS.White, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (category.comingSoon) { Spacer(Modifier.width(8.dp)); ComingSoonBadge() }
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Text(subtitle, color = DS.Muted, fontSize = 12.5.sp, lineHeight = 17.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(art.tone, color = DS.Text, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0x10FFFFFF)).padding(horizontal = 10.dp, vertical = 6.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            color = accent.copy(alpha = 0.22f),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.border(1.dp, accent.copy(alpha = 0.38f), RoundedCornerShape(50))
+                        ) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Buka", color = accent, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Rounded.ArrowForward, null, tint = accent, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun CategoryPreviewArt(icon: ImageVector, label: String, accent: Color, art: CategoryArt) {
+    Box(Modifier.width(86.dp).height(104.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .width(48.dp)
+                .height(72.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Brush.verticalGradient(listOf(art.posterColors[1], art.posterColors[2])))
+                .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(14.dp))
+        )
+        Box(
+            Modifier
+                .align(Alignment.TopStart)
+                .width(62.dp)
+                .height(92.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Brush.verticalGradient(listOf(art.posterColors[0], DS.Bg3)))
+                .border(1.dp, Color(0x44FFFFFF), RoundedCornerShape(18.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, label, tint = Color.White, modifier = Modifier.size(28.dp))
+        }
+        Text(
+            art.metric,
+            color = Color.White,
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0xD908090E))
+                .border(1.dp, accent.copy(alpha = 0.44f), RoundedCornerShape(50))
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        )
     }
 }
 
@@ -930,7 +1051,7 @@ private fun HomeHeader(
         ?: remoteError?.let { "Status server: $it" }
         ?: if (!online) "${platformLabel(platformId)} sedang dalam pemeliharaan" else ""
 
-    Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 10.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
             if (category != null) {
                 Surface(
@@ -955,13 +1076,19 @@ private fun HomeHeader(
                     color = DS.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.6).sp
                 )
                 Spacer(Modifier.height(1.dp))
-                Text("$greeting • ${category?.subtitle ?: "Pilihan Terbaik Hari Ini"}", color = DS.Muted, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("$greeting • ${category?.subtitle ?: "Cari tontonan baru"}", color = DS.Muted, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             HeaderCircleButton(Icons.Rounded.Search, "Cari", onSearch)
             Spacer(Modifier.width(10.dp))
             HeaderCircleButton(Icons.Rounded.Refresh, "Muat ulang", onRefresh)
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Sumber", color = DS.Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp)
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.weight(1f).height(1.dp).background(Brush.horizontalGradient(listOf(DS.Line, Color.Transparent))))
+        }
+        Spacer(Modifier.height(10.dp))
         LazyRow(
             contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -975,8 +1102,8 @@ private fun HomeHeader(
                     shape = RoundedCornerShape(50),
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .background(if (selected) Brush.horizontalGradient(DS.GreenGrad) else Brush.horizontalGradient(listOf(Color(0x33131622), Color(0x33131622))))
-                        .border(if (selected) 0.dp else 1.dp, if (selected) Color.Transparent else Color(0x28FFFFFF), RoundedCornerShape(50))
+                        .background(if (selected) Brush.horizontalGradient(DS.GreenGrad) else Brush.horizontalGradient(listOf(Color(0x1FFFFFFF), Color(0x14131622))))
+                        .border(if (selected) 0.dp else 1.dp, if (selected) Color.Transparent else Color(0x22FFFFFF), RoundedCornerShape(50))
                         .clickable(enabled = enabled) { onPlatform(source.id) }
                 ) {
                     Text(
