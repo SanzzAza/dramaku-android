@@ -413,12 +413,30 @@ private fun App() {
                                     if (pool.isNotEmpty()) clipFeedItems = pool.shuffled().take(80)
                                     else Toast.makeText(ctx, "Cuplikan belum tersedia", Toast.LENGTH_SHORT).show()
                                 },
-                                onResume = { h -> pendingResume = h; selectedDrama = Drama(h.id, h.title, poster = h.poster, platform = h.platform) }
+                                onResume = { h ->
+                                    scope.launch {
+                                        Toast.makeText(ctx, "Lanjut memutar Ep ${h.episode}...", Toast.LENGTH_SHORT).show()
+                                        val d = Drama(h.id, h.title, poster = h.poster, platform = h.platform)
+                                        val det = runCatching { repo.loadDetailCached(d) }.getOrNull() ?: Detail(d)
+                                        playerSession = PlayerSession(det, h.episode)
+                                    }
+                                }
                             )
                             Tab.Search -> SearchScreen(repo, store, selPlatform, onDrama = { selectedDrama = it }, onBack = { tab = Tab.Home }, dataTick = dataTick, bump = { dataTick++ })
                             Tab.Clips -> ClipsScreen(homeState, repo, store, onBack = { tab = Tab.Home }, onWatchFull = { playerSession = PlayerSession(it, 1) }, onOpenDetail = { selectedDrama = it })
                             Tab.Rewards -> PlaceholderScreen("Hadiah", "Fitur reward sedang disiapkan", Icons.Rounded.CardGiftcard)
-                            Tab.Library -> LibraryScreen(store, dataTick, onDrama = { selectedDrama = it })
+                            Tab.Library -> LibraryScreen(
+                                store, dataTick,
+                                onDrama = { selectedDrama = it },
+                                onResume = { h ->
+                                    scope.launch {
+                                        Toast.makeText(ctx, "Lanjut memutar Ep ${h.episode}...", Toast.LENGTH_SHORT).show()
+                                        val d = Drama(h.id, h.title, poster = h.poster, platform = h.platform)
+                                        val det = runCatching { repo.loadDetailCached(d) }.getOrNull() ?: Detail(d)
+                                        playerSession = PlayerSession(det, h.episode)
+                                    }
+                                }
+                            )
                             Tab.Profile -> ProfileScreen(store, dataTick, bump = { dataTick++ })
                         }
                     }
@@ -1715,7 +1733,7 @@ private fun SearchScreen(repo: DramakuRepository, store: LocalStore, currentPlat
 }
 
 @Composable
-private fun LibraryScreen(store: LocalStore, dataTick: Int, onDrama: (Drama) -> Unit) {
+private fun LibraryScreen(store: LocalStore, dataTick: Int, onDrama: (Drama) -> Unit, onResume: (HistoryItem) -> Unit = {}) {
     val ctx = LocalContext.current
     var showFav by remember { mutableStateOf(false) }
     var localTick by remember { mutableIntStateOf(0) }
@@ -1767,7 +1785,7 @@ private fun LibraryScreen(store: LocalStore, dataTick: Int, onDrama: (Drama) -> 
                                 onDelete = {
                                     store.removeHistory(h.id, h.platform); localTick++; Toast.makeText(ctx, "Riwayat dihapus", Toast.LENGTH_SHORT).show()
                                 }
-                            ) { onDrama(Drama(h.id, h.title, poster = h.poster, platform = h.platform)) }
+                            ) { onResume(h) }
                         }
                     }
                 }
@@ -3487,9 +3505,19 @@ private class LocalStore(ctx: Context) {
         val prefix = ProgressKeys.episodePrefix(platform, id, ep)
         val sp = pos.coerceAtLeast(0); val sd = dur.coerceAtLeast(0)
         val ed = p.edit().putLong(prefix + "pos", sp).putLong(prefix + "dur", sd)
-        val list = history().toMutableList(); val idx = list.indexOfFirst { it.id == id && it.platform == platform }
-        if (idx >= 0) { list[idx] = list[idx].copy(episode = ep, pos = sp, dur = sd, updated = System.currentTimeMillis()); val a = JSONArray(); list.sortedByDescending { it.updated }.forEach { a.put(JSONObject().apply { put("id", it.id); put("title", it.title); put("poster", it.poster); put("platform", it.platform); put("episode", it.episode); put("pos", it.pos); put("dur", it.dur); put("updated", it.updated) }) }; ed.putString("history", a.toString()) }
-        ed.apply()
+        val list = history().toMutableList()
+        val idx = list.indexOfFirst { it.id == id && it.platform == platform }
+        val finalDur = if (sd > 0) sd else if (idx >= 0 && list[idx].dur > 0) list[idx].dur else 120_000L
+        if (idx >= 0) {
+            list[idx] = list[idx].copy(episode = ep, pos = sp, dur = finalDur, updated = System.currentTimeMillis())
+        } else {
+            list.add(0, HistoryItem(id, id, "", platform, ep, pos = sp, dur = finalDur, updated = System.currentTimeMillis()))
+        }
+        val a = JSONArray()
+        list.sortedByDescending { it.updated }.take(80).forEach {
+            a.put(JSONObject().apply { put("id", it.id); put("title", it.title); put("poster", it.poster); put("platform", it.platform); put("episode", it.episode); put("pos", it.pos); put("dur", it.dur); put("updated", it.updated) })
+        }
+        ed.putString("history", a.toString()).apply()
     }
 
     fun progressMs(id: String, platform: String, ep: Int): Long {
