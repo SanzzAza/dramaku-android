@@ -3026,7 +3026,7 @@ private class DramakuRepository {
             if (mv != null && mv.has("episodes")) {
                 val series = mv.optJSONObject("series") ?: mv
                 val d = normalize(series, p).copy(
-                    id = series.stringAny("series_id", "book_id", "id").ifBlank { input.id },
+                    id = input.id,
                     title = series.stringAny("title", "book_name").ifBlank { input.title },
                     description = cleanText(series.stringAny("intro", "abstract", "description")).ifBlank { input.description },
                     episodes = max(mv.intAny("total", 0), max(series.intAny("episode_count", 0), mv.optJSONArray("episodes")?.length() ?: 0)).coerceAtLeast(1),
@@ -3050,7 +3050,7 @@ private class DramakuRepository {
                 ?: JSONObject()
             val bookObj = bk.optJSONObject("series") ?: bk.optJSONObject("book") ?: bk
             val d = normalize(bookObj, p).copy(
-                id = bookObj.stringAny("book_id", "series_id", "id").ifBlank { input.id },
+                id = input.id,
                 title = bookObj.stringAny("title", "book_name").ifBlank { input.title },
                 description = cleanText(bookObj.stringAny("abstract", "intro", "description")).ifBlank { input.description },
                 episodes = max(bookObj.intAny("episode_count", "total_episodes", 0), input.episodes).coerceAtLeast(1),
@@ -3109,7 +3109,7 @@ private class DramakuRepository {
                 ).coerceAtLeast(1)
                 val isSeriesOrShort = total > 1 || (epsArray != null && epsArray.length() > 1) || mbData.intAny("subjectType", 1) > 1
                 val d = normalize(mbData, p).copy(
-                    id = mbData.stringAny("subjectId").ifBlank { input.id },
+                    id = input.id,
                     title = mbData.stringAny("title").ifBlank { input.title },
                     description = mbData.stringAny("description").ifBlank { input.description },
                     episodes = total,
@@ -3138,7 +3138,7 @@ private class DramakuRepository {
             val d = input.copy(episodes = 1, subjectType = input.subjectType.takeIf { it != 0 } ?: 1, platform = p)
             return Detail(d, listOf(EpisodeInfo(1)))
         }
-        val d = normalize(data, p).let { it.copy(id = it.id.ifBlank { input.id }, title = it.title.ifBlank { input.title }, poster = fixImg(it.poster.ifBlank { input.poster }), description = it.description.ifBlank { input.description }, episodes = max(it.episodes, input.episodes), platform = p) }
+        val d = normalize(data, p).let { it.copy(id = input.id, title = it.title.ifBlank { input.title }, poster = fixImg(it.poster.ifBlank { input.poster }), description = it.description.ifBlank { input.description }, episodes = max(it.episodes, input.episodes), platform = p) }
         val epsArr = data.optJSONArray("video_list") ?: data.optJSONArray("episode_list") ?: data.optJSONArray("episodes") ?: data.optJSONArray("chapterList")
         val eps = epsArr?.objects()?.mapIndexed { i, o -> EpisodeInfo(o.intAny("episode", "episode_no", "chapterIndex", i + 1), o.stringAny("streaming"), o.stringAny("episode_label", "title", "label")) }.orEmpty()
         val total = max(d.episodes, eps.size)
