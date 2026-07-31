@@ -208,6 +208,7 @@ private data class Drama(
 private data class EpisodeInfo(val number: Int, val streaming: String = "", val label: String = "", val locked: Boolean = false)
 private data class Detail(val drama: Drama, val episodes: List<EpisodeInfo> = emptyList())
 private data class HomeBundle(val recommended: List<Drama>, val popular: List<Drama>, val newest: List<Drama>, val loadedPage: Int = 1, val hasMore: Boolean = true)
+private data class CategorySignal(val label: String, val value: String, val icon: ImageVector, val color: Color)
 private data class StreamResult(val url: String, val subtitle: String = "")
 private data class CachedStream(val result: StreamResult, val expiresAtMs: Long)
 private data class PlayerSession(val detail: Detail, val startEpisode: Int)
@@ -571,7 +572,9 @@ private fun HomeScreen(
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().background(DS.Bg),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF07070B), DS.Bg, Color(0xFF0B111D)))),
         contentPadding = PaddingValues(bottom = 20.dp)
     ) {
         item {
@@ -682,14 +685,22 @@ private fun HomeScreen(
 private fun CategoryHomeScreen(onSelect: (HomeCategory) -> Unit, onSettings: () -> Unit) {
     val ctx = LocalContext.current
     val greeting = remember { Greetings.forHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) }
-    Box(Modifier.fillMaxSize().background(DS.Bg)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF07070B), DS.Bg, Color(0xFF100711))))
+    ) {
         Box(
-            Modifier.align(Alignment.TopEnd).size(260.dp).offset(x = 100.dp, y = (-100).dp)
-                .clip(CircleShape).background(DS.Green.copy(alpha = 0.12f))
+            Modifier.align(Alignment.TopEnd).size(310.dp).offset(x = 112.dp, y = (-124).dp)
+                .clip(CircleShape).background(DS.Green.copy(alpha = 0.18f))
         )
         Box(
-            Modifier.align(Alignment.BottomStart).size(220.dp).offset(x = (-80).dp, y = 80.dp)
-                .clip(CircleShape).background(DS.Sky.copy(alpha = 0.08f))
+            Modifier.align(Alignment.CenterStart).size(260.dp).offset(x = (-148).dp, y = 42.dp)
+                .clip(CircleShape).background(DS.Sky.copy(alpha = 0.10f))
+        )
+        Box(
+            Modifier.align(Alignment.BottomEnd).size(220.dp).offset(x = 96.dp, y = 72.dp)
+                .clip(CircleShape).background(DS.Warm.copy(alpha = 0.09f))
         )
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)
@@ -713,12 +724,9 @@ private fun CategoryHomeScreen(onSelect: (HomeCategory) -> Unit, onSettings: () 
             }
 
             Spacer(Modifier.height(28.dp))
-            Text("Hiburan Tanpa Batas", color = DS.White, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.9).sp)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Pilih dunia drama favoritmu — dari short drama vertikal, serial Korea & China, hingga film layar lebar MovieBox.",
-                color = DS.Muted, fontSize = 13.sp, lineHeight = 19.sp
-            )
+            HeroIntroPanel(greeting.text)
+            Spacer(Modifier.height(18.dp))
+            CategorySignalStrip()
             Spacer(Modifier.height(22.dp))
 
             CategoryWideCard(
@@ -785,6 +793,61 @@ private fun CategoryHomeScreen(onSelect: (HomeCategory) -> Unit, onSettings: () 
 }
 
 @Composable
+private fun HeroIntroPanel(greeting: String) {
+    Surface(
+        color = Color.Transparent,
+        shape = RoundedCornerShape(30.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(30.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF1B1020), DS.Bg2, Color(0xFF111827))))
+            .border(1.dp, Color(0x30FFFFFF), RoundedCornerShape(30.dp))
+    ) {
+        Column(Modifier.padding(22.dp)) {
+            Surface(color = DS.Green.copy(alpha = 0.18f), shape = RoundedCornerShape(50)) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.AutoAwesome, null, tint = DS.Green, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("$greeting • Rekomendasi personal", color = DS.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("Hiburan Tanpa Batas", color = DS.White, fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1.2).sp)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Pilih dunia drama favoritmu dengan navigasi lebih jelas, kartu lebih lega, dan aksi utama yang gampang dijangkau.",
+                color = DS.Text, fontSize = 13.sp, lineHeight = 20.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun CategorySignalStrip() {
+    val signals = listOf(
+        CategorySignal("Mode", "Vertikal", Icons.Rounded.SmartDisplay, DS.Green),
+        CategorySignal("Kualitas", "HD", Icons.Rounded.HighQuality, DS.Sky),
+        CategorySignal("Iklan", "Minim", Icons.Rounded.Verified, DS.Warm)
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        signals.forEach { signal ->
+            Surface(
+                color = Color(0x12FFFFFF),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.weight(1f).border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(18.dp))
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 13.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(signal.icon, null, tint = signal.color, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.height(7.dp))
+                    Text(signal.value, color = DS.White, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    Text(signal.label, color = DS.Muted, fontSize = 10.sp, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun BrandLogoMini(modifier: Modifier = Modifier) {
     Box(
         modifier
@@ -842,14 +905,16 @@ private fun CategoryWideCard(
                 Text(subtitle, color = DS.Muted, fontSize = 12.5.sp, lineHeight = 17.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.width(8.dp))
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(accent.copy(alpha = 0.22f)),
-                contentAlignment = Alignment.Center
+            Surface(
+                color = accent.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.border(1.dp, accent.copy(alpha = 0.38f), RoundedCornerShape(50))
             ) {
-                Icon(Icons.Rounded.ArrowForward, null, tint = accent, modifier = Modifier.size(18.dp))
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Buka", color = accent, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Rounded.ArrowForward, null, tint = accent, modifier = Modifier.size(16.dp))
+                }
             }
         }
     }
