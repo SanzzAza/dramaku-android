@@ -230,7 +230,7 @@ private sealed class Load<out T> {
 // ─────────────────────────────────────────────────────────────────
 
 private val Platforms = listOf(
-    PlatformInfo("melolo", "Melolo", "https://new-api.sonzaix.workers.dev/melolo", logoRes = R.drawable.logo_melolo),
+    PlatformInfo("melolo", "Melolo", "https://captain.sapimu.au/melolo/api/v1", logoRes = R.drawable.logo_melolo),
     PlatformInfo("freereels", "FreeReels", "https://new-api.sonzaix.workers.dev/freereels", logoRes = R.drawable.logo_freereels),
     PlatformInfo("flickreels", "FlickReels", "https://new-api.sonzaix.workers.dev/flickreels", logoRes = R.drawable.logo_flickreels),
     PlatformInfo("dramanova", "DramaNova", "https://new-api.sonzaix.workers.dev/dramanova", logoRes = R.drawable.logo_dramanova),
@@ -2941,9 +2941,57 @@ private class DramakuRepository {
     suspend fun movieboxShortsReel(page: Int = 1, perPage: Int = 20): JSONObject = getJson("${apiBase("moviebox")}/shorts/reel?page=$page&perPage=$perPage")
     suspend fun movieboxLanguages(): JSONObject = getJson("${apiBase("moviebox")}/tabs/languages?lang=id")
 
+    // Endpoint Melolo tambahan (migrasi ke captain.sapimu.au dengan lang=id):
+    // 1. /languages
+    // 3. /search/suggest?q=...&lang=id
+    suspend fun meloloLanguages(): JSONObject = getJson("${apiBase("melolo")}/languages")
+    suspend fun meloloSearchSuggest(query: String): List<String> = runCatching {
+        val j = getJson("${apiBase("melolo")}/search/suggest?q=${enc(query)}&lang=id")
+        val arr = j.optJSONArray("query_result") ?: JSONArray()
+        (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+    }.getOrDefault(emptyList())
+
     suspend fun loadDetail(input: Drama): Detail {
         val p = input.platform
         val url = detailUrl(input)
+        if (p == "melolo") {
+            val mv = runCatching { getJson("${apiBase(p)}/multi-video?id=${enc(input.id)}&lang=id") }.getOrNull()
+            if (mv != null && mv.has("episodes")) {
+                val series = mv.optJSONObject("series") ?: mv
+                val d = normalize(series, p).copy(
+                    id = series.stringAny("series_id", "book_id", "id").ifBlank { input.id },
+                    title = series.stringAny("title", "book_name").ifBlank { input.title },
+                    description = cleanText(series.stringAny("intro", "abstract", "description")).ifBlank { input.description },
+                    episodes = max(mv.intAny("total", 0), max(series.intAny("episode_count", 0), mv.optJSONArray("episodes")?.length() ?: 0)).coerceAtLeast(1),
+                    poster = fixImg(series.stringAny("cover", "thumb_url").ifBlank { input.poster }),
+                    platform = p
+                )
+                val epsArr = mv.optJSONArray("episodes")
+                val eps = if (epsArr != null && epsArr.length() > 0) {
+                    (0 until epsArr.length()).map { i ->
+                        val obj = epsArr.optJSONObject(i)
+                        val epNum = obj?.intAny("index", "episode", i + 1) ?: (i + 1)
+                        EpisodeInfo(epNum, obj?.stringAny("stream_url", "videoPath", "url").orEmpty())
+                    }.distinctBy { it.number }
+                } else {
+                    (1..d.episodes).map { EpisodeInfo(it) }
+                }
+                return Detail(d, eps)
+            }
+            val bk = runCatching { getJson("${apiBase(p)}/book?id=${enc(input.id)}&lang=id") }.getOrNull()
+                ?: runCatching { getJson("${apiBase(p)}/series?id=${enc(input.id)}&lang=id") }.getOrNull()
+                ?: JSONObject()
+            val bookObj = bk.optJSONObject("series") ?: bk.optJSONObject("book") ?: bk
+            val d = normalize(bookObj, p).copy(
+                id = bookObj.stringAny("book_id", "series_id", "id").ifBlank { input.id },
+                title = bookObj.stringAny("title", "book_name").ifBlank { input.title },
+                description = cleanText(bookObj.stringAny("abstract", "intro", "description")).ifBlank { input.description },
+                episodes = max(bookObj.intAny("episode_count", "total_episodes", 0), input.episodes).coerceAtLeast(1),
+                poster = fixImg(bookObj.stringAny("cover", "thumb_url", "first_chapter_cover").ifBlank { input.poster }),
+                platform = p
+            )
+            return Detail(d, (1..d.episodes).map { EpisodeInfo(it) })
+        }
         // Untuk MovieBox movie, coba hit endpoint detail seperti biasa agar
         // sinopsis/poster/tags bisa terisi. Kalau endpoint gagal (mis. subjectType
         // tidak dikenali atau struktur beda), fallback ke data listing.
@@ -3041,21 +3089,20 @@ private class DramakuRepository {
         }
         return when (p) {
             "melolo" -> {
+                val cachedUrl = d.episodes.firstOrNull { it.number == ep }?.streaming.orEmpty()
+                if (cachedUrl.isNotBlank() && !isMovieboxExpired(cachedUrl)) {
+                    return StreamResult(cachedUrl)
+                }
+                val mv = runCatching { getJson("$base/multi-video?id=${enc(id)}&lang=id") }.getOrNull()
+                val epsArr = mv?.optJSONArray("episodes")?.objects().orEmpty()
+                val epObj = epsArr.firstOrNull { it.intAny("index", "episode", 0) == ep } ?: epsArr.getOrNull(ep - 1)
+                val directStream = epObj?.stringAny("stream_url", "videoPath", "url").orEmpty()
+                if (directStream.isNotBlank()) {
+                    return StreamResult(directStream)
+                }
                 val urlV2 = tryUnifiedStream()
                 if (urlV2.isNotBlank()) return StreamResult(urlV2)
-
-                val raw = runCatching { getJson("$base/stream?id=${enc(id)}&ep=$ep&_=$stamp") }.getOrNull()
-                val qualities = raw?.optJSONArray("qualities")?.objects().orEmpty()
-                val selected = qualities.firstOrNull { it.stringAny("label").contains("720") }
-                    ?: qualities.firstOrNull { it.stringAny("label").contains("540") }
-                    ?: qualities.firstOrNull()
-                val source = selected?.stringAny("url", "backup_url").orEmpty()
-                val kid = selected?.stringAny("kid").orEmpty()
-                if (source.isNotBlank() && kid.isNotBlank()) {
-                    StreamResult("$base/melolo?url=${enc(source)}&kid=${enc(kid)}")
-                } else {
-                    error("Stream Melolo tidak tersedia atau link expired.")
-                }
+                error("Stream Melolo tidak tersedia atau link expired.")
             }
             "freereels" -> {
                 val urlV2 = tryUnifiedStream()
@@ -3249,6 +3296,16 @@ private fun homeUrls(p: String, page: Int = 1): List<String> {
         "netshort" -> { h = "$base/home?page=1"; pop = "$base/populer"; nw = "$base/new" }
         "dramabox" -> { h = "$base/home?page=$sp&lang=in"; pop = "$base/populer?page=$sp&lang=in"; nw = "$base/new?page=$sp&lang=in" }
         "goodshort" -> { h = "$base/home?page=$sp"; pop = "$base/populer?page=$sp"; nw = "$base/new?page=$sp&channelId=563" }
+        "melolo" -> {
+            // Migrasi Melolo ke API captain.sapimu.au dengan lang=id
+            // 1. /bookmall?lang=id (Recommended)
+            // 2. /bookmall/tabs?gender=0&lang=id (Popular)
+            // 3. /bookmall/tabs?gender=1&lang=id (Newest)
+            val pg = if (sp > 1) "&page=$sp" else ""
+            h = "$base/bookmall?lang=id$pg"
+            pop = "$base/bookmall/tabs?gender=0&lang=id$pg"
+            nw = "$base/bookmall/tabs?gender=1&lang=id$pg"
+        }
         "moviebox" -> {
             // Migrasi API MovieBox ke captain.sapimu.au
             // - Recommended: /tabs/home-content
@@ -3264,6 +3321,7 @@ private fun homeUrls(p: String, page: Int = 1): List<String> {
 }
 
 private fun detailUrl(d: Drama): String = when (d.platform) {
+    "melolo" -> "${apiBase(d.platform)}/book?id=${enc(d.id)}&lang=id"
     "dramabox" -> "${apiBase(d.platform)}/detail?bookId=${enc(d.id)}&lang=in"
     "goodshort" -> "${apiBase(d.platform)}/detail?bookId=${enc(d.id)}"
     "moviebox" -> "${apiBase(d.platform)}/subject/get?subjectId=${enc(d.id)}&lang=id"
@@ -3278,14 +3336,25 @@ private fun mergeHomeBundles(c: HomeBundle, n: HomeBundle) = HomeBundle(dedupe(c
 private fun flat(any: Any?, fp: String): List<Drama> {
     val out = mutableListOf<Drama>()
     when (any) {
-        is JSONArray -> any.objects().forEach { o -> val b = o.optJSONArray("books"); if (b != null) out += flat(b, fp) else out += normalize(o, fp) }
-        is JSONObject -> when {
-            any.has("trending") || any.has("popular") || any.has("newest") -> listOf("trending", "popular", "newest").forEach { k -> out += flat(any.optJSONArray(k), "dramabox") }
-            any.optJSONObject("classifyBookList")?.optJSONArray("records") != null -> out += flat(any.optJSONObject("classifyBookList")?.optJSONArray("records"), "dramabox")
-            any.optJSONArray("items") != null -> out += flat(any.optJSONArray("items"), fp)
-            any.optJSONArray("subjects") != null -> out += flat(any.optJSONArray("subjects"), "moviebox")
-            any.optJSONArray("results") != null -> any.optJSONArray("results")!!.objects().forEach { r -> out += flat(r.optJSONArray("subjects"), "moviebox") }
-            else -> out += normalize(any, fp)
+        is JSONArray -> any.objects().forEach { o ->
+            val b = o.optJSONArray("books")
+            if (b != null) out += flat(b, fp) else out += flat(o, fp)
+        }
+        is JSONObject -> {
+            var foundContainer = false
+            if (any.optJSONObject("cell") != null) { out += flat(any.optJSONObject("cell")?.optJSONArray("cell_data"), fp); foundContainer = true }
+            if (any.optJSONArray("book_tab_infos") != null) { any.optJSONArray("book_tab_infos")!!.objects().forEach { tab -> out += flat(tab.optJSONArray("cells"), fp) }; foundContainer = true }
+            if (any.optJSONArray("cells") != null) { any.optJSONArray("cells")!!.objects().forEach { cl -> out += flat(cl.optJSONArray("cell_data"), fp); out += flat(cl.optJSONArray("books"), fp) }; foundContainer = true }
+            if (any.optJSONArray("cell_data") != null) { any.optJSONArray("cell_data")!!.objects().forEach { cd -> out += flat(cd.optJSONArray("books"), fp) }; foundContainer = true }
+            if (any.optJSONArray("books") != null) { out += flat(any.optJSONArray("books"), fp); foundContainer = true }
+            if (any.optJSONArray("items") != null) { out += flat(any.optJSONArray("items"), fp); foundContainer = true }
+            if (any.optJSONArray("subjects") != null) { out += flat(any.optJSONArray("subjects"), "moviebox"); foundContainer = true }
+            if (any.optJSONArray("results") != null) { any.optJSONArray("results")!!.objects().forEach { r -> out += flat(r.optJSONArray("subjects"), "moviebox") }; foundContainer = true }
+            if (any.has("trending") || any.has("popular") || any.has("newest")) { listOf("trending", "popular", "newest").forEach { k -> out += flat(any.optJSONArray(k), "dramabox") }; foundContainer = true }
+            if (any.optJSONObject("classifyBookList")?.optJSONArray("records") != null) { out += flat(any.optJSONObject("classifyBookList")?.optJSONArray("records"), "dramabox"); foundContainer = true }
+            if (!foundContainer) {
+                out += normalize(any, fp)
+            }
         }
     }
     return out.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.platform + "|" + it.id }
@@ -3294,7 +3363,17 @@ private fun flat(any: Any?, fp: String): List<Drama> {
 private fun normalize(o: JSONObject, fp: String): Drama {
     val isDrakor = o.has("meta_episode") || (o.has("id") && o.has("title") && o.has("image"))
     val p = when { fp == "dramabox" || o.has("bookId") -> "dramabox"; fp == "moviebox" || o.has("subjectId") -> "moviebox"; fp == "drakor" || isDrakor -> "drakor"; o.optBoolean("free", false) -> "freereels"; else -> fp }
-    return Drama(o.stringAny("drama_id", "bookId", "id", "subjectId"), o.stringAny("drama_name", "bookName", "title", "bookTitle"), cleanText(o.stringAny("introduction", "description", "meta_description", "meta_sinopsis", "shoot", "content", "synopsis")), fixImg(o.stringAny("thumb_url", "coverWap", "cover", "bookCover", "image", "poster", "posterImg").ifBlank { o.coverUrl() }), o.intAny("chapterCount", "episode_count", "meta_episode", "episode_number", "total_episodes", "chapterCnt", 0), o.stringAny("watch_value", "hotCode", "viewCountDisplay", "hits", "viewers").ifBlank { o.optJSONObject("rankVo")?.stringAny("hotCode").orEmpty() }, tagsOf(o), p, o.intAny("subjectType", 1))
+    return Drama(
+        o.stringAny("drama_id", "bookId", "id", "subjectId", "book_id"),
+        o.stringAny("drama_name", "bookName", "title", "bookTitle", "book_name"),
+        cleanText(o.stringAny("introduction", "description", "meta_description", "meta_sinopsis", "shoot", "content", "synopsis", "abstract", "intro")),
+        fixImg(o.stringAny("thumb_url", "coverWap", "cover", "bookCover", "image", "poster", "posterImg", "first_chapter_cover").ifBlank { o.coverUrl() }),
+        o.intAny("chapterCount", "episode_count", "meta_episode", "episode_number", "total_episodes", "chapterCnt", "chapter_count", 0),
+        o.stringAny("watch_value", "hotCode", "viewCountDisplay", "hits", "viewers", "play_count", "stat_value").ifBlank { o.optJSONObject("rankVo")?.stringAny("hotCode").orEmpty() },
+        tagsOf(o),
+        p,
+        o.intAny("subjectType", 1)
+    )
 }
 
 private fun tagsOf(o: JSONObject): List<String> {
