@@ -101,8 +101,10 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
 import okhttp3.Dispatcher
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -236,7 +238,7 @@ private val Platforms = listOf(
     PlatformInfo("netshort", "NetShort", "https://new-api.sonzaix.workers.dev/netshort", "https://netshort.com/assets/logo/logo.png"),
     PlatformInfo("dramabox", "DramaBox", "https://new-api.sonzaix.workers.dev/dramabox", "https://www.google.com/s2/favicons?sz=256&domain=dramaboxapp.com"),
     PlatformInfo("goodshort", "GoodShort", "https://new-api.sonzaix.workers.dev/goodshort", "https://acfs3.goodshort.com/dist/src/assets/images/pc/common/1b3b5f4e-logo.png"),
-    PlatformInfo("moviebox", "MovieBox", "https://new-api.sonzaix.workers.dev/moviebox", "https://www.google.com/s2/favicons?sz=256&domain=moviebox.ng"),
+    PlatformInfo("moviebox", "MovieBox", "https://captain.sapimu.au/moviebox/api", "https://www.google.com/s2/favicons?sz=256&domain=moviebox.ng"),
     PlatformInfo("drakor", "Drakor", "https://new-api.sonzaix.workers.dev/drama", "https://www.google.com/s2/favicons?sz=256&domain=drakor.id")
 )
 
@@ -2020,6 +2022,8 @@ private fun streamHeaders(platformId: String): Map<String, String> = when (platf
         "Cookie" to "DRIVE_STREAM=drakor.id"
     )
     "moviebox" -> mapOf(
+        "User-Agent" to "Mozilla/5.0",
+        "Authorization" to "Bearer 15693e658f723c5b4c45900a5d045ef0ab6a053ecda4dadb831c68fef773ba5e",
         "Accept" to "video/mp4,video/*;q=0.9,*/*;q=0.8",
         "Referer" to "https://www.moviebox.com/",
         "Origin" to "https://www.moviebox.com"
@@ -2491,19 +2495,23 @@ private class DramakuRepository {
     ): MBRes {
         var sawExpiredLink = false
         fun linkOf(o: JSONObject?): String {
-            val u = cleanUrl(o?.stringAny("resourceLink").orEmpty())
+            val u = cleanUrl(o?.stringAny("resourceLink", "url", "streamUrl").orEmpty())
             if (u.isNotBlank() && isMovieboxExpired(u)) {
                 sawExpiredLink = true
                 return ""
             }
             return u
         }
-        fun subOf(o: JSONObject?): String = cleanUrl(o?.optJSONObject("subtitle")?.stringAny("url").orEmpty())
+        fun subOf(o: JSONObject?): String = cleanUrl(
+            o?.optJSONObject("subtitle")?.stringAny("url")
+                ?: o?.optJSONArray("extCaptions")?.optJSONObject(0)?.stringAny("url", "src")
+                ?: o?.stringAny("subtitle", "caption")
+        )
         fun codecOf(o: JSONObject?): String = o?.stringAny("codecName", "codec").orEmpty().lowercase()
         suspend fun mbJson(url: String): JSONObject? {
             var last: Throwable? = null
             repeat(2) { i ->
-                if (i > 0) delay(500L)
+                if (i > 0) delay(400L)
                 try {
                     val j = getJson(url)
                     val code = j.optInt("code", 200)
@@ -2517,6 +2525,24 @@ private class DramakuRepository {
                 catch (t: Throwable) { last = t }
             }
             return null
+        }
+
+        // 1. Coba endpoint utama stream MovieBox (Film/Series): /stream/{id}?ep={ep}&se=1&subjectId={id}&lang=id
+        val directStream = mbJson("$streamBase/stream/${enc(id)}?ep=$ep&se=1&subjectId=${enc(id)}&lang=id")?.optJSONObject("data")
+        if (directStream != null) {
+            val u = linkOf(directStream)
+            if (u.isNotBlank()) {
+                return MBRes.Ok(u, subOf(directStream))
+            }
+        }
+
+        // 2. Coba endpoint short drama MovieBox: /shorts/mini-list?subjectId={id}&ep={ep}&lang=id
+        val miniStream = mbJson("$streamBase/shorts/mini-list?subjectId=${enc(id)}&ep=$ep&lang=id")?.optJSONObject("data")
+        if (miniStream != null) {
+            val u = linkOf(miniStream)
+            if (u.isNotBlank()) {
+                return MBRes.Ok(u, subOf(miniStream))
+            }
         }
 
         return if (subjectType == 2) {
@@ -2619,12 +2645,20 @@ private class DramakuRepository {
             "netshort" -> "${pl.base}/search?query=$enc&page=1"
             "dramabox" -> "${pl.base}/search?q=$enc&page=1&lang=in"
             "goodshort" -> "${pl.base}/search?q=$enc&page=1"
-            "moviebox" -> "${pl.base}/search?q=$enc&page=1&perPage=10"
+            "moviebox" -> "${pl.base}/subject/search?keyword=$enc&page=1&perPage=10"
             "drakor" -> "${pl.base}/search?q=$enc&page=1&limit=30&type=1&order=1"
             else -> "${pl.base}/search?q=$enc"
         }
         dedupeAndRank(runCatching { flat(getJson(url).dataOrSelf(), pl.id) }.getOrDefault(emptyList()), q).take(80)
     }
+
+    // Endpoint MovieBox tambahan (sesuai spesifikasi 11 endpoint migrasi):
+    // 2. /tabs/categories?lang=id
+    // 8. /shorts/reel?page=1&perPage=10
+    // 11. /tabs/languages?lang=id
+    suspend fun movieboxCategories(): JSONObject = getJson("${apiBase("moviebox")}/tabs/categories?lang=id")
+    suspend fun movieboxShortsReel(page: Int = 1, perPage: Int = 20): JSONObject = getJson("${apiBase("moviebox")}/shorts/reel?page=$page&perPage=$perPage")
+    suspend fun movieboxLanguages(): JSONObject = getJson("${apiBase("moviebox")}/tabs/languages?lang=id")
 
     suspend fun loadDetail(input: Drama): Detail {
         val p = input.platform
@@ -2633,7 +2667,13 @@ private class DramakuRepository {
         // sinopsis/poster/tags bisa terisi. Kalau endpoint gagal (mis. subjectType
         // tidak dikenali atau struktur beda), fallback ke data listing.
         val json: JSONObject = if (p == "moviebox") {
-            runCatching { getJson(url) }.getOrNull() ?: JSONObject()
+            val res1 = runCatching { getJson(url) }.getOrNull()
+            val hasData = res1?.optJSONObject("data") != null && res1.optJSONObject("data")!!.length() > 0
+            if (hasData) {
+                res1!!
+            } else {
+                runCatching { getJson("${apiBase(p)}/shorts/info?subjectId=${enc(input.id)}&lang=id") }.getOrNull() ?: JSONObject()
+            }
         } else {
             getJson(url)
         }
@@ -2657,25 +2697,46 @@ private class DramakuRepository {
             return Detail(d, (0 until list.length()).map { EpisodeInfo(it + 1) })
         }
         if (p == "moviebox") {
-            // Kalau endpoint detail berhasil, pakai data. Kalau fallback JSON kosong,
-            // pakai data dari listing (input) dengan 1 episode (movie).
+            // Kalau endpoint detail berhasil (/subject/get atau /shorts/info), pakai data.
+            // Kalau fallback JSON kosong, pakai data dari listing (input) dengan 1 episode (movie).
             val mbData = json.optJSONObject("data")
             if (mbData != null) {
+                val epsArray = mbData.optJSONArray("episodes")
+                val totalFromArr = epsArray?.length() ?: 0
                 val rd0 = mbData.optJSONArray("resourceDetectors")?.optJSONObject(0)
-                val total = rd0?.intAny("totalEpisode", 0)
-                    ?: mbData.optJSONObject("resourceDetectors")?.intAny("totalEpisode", 0)
-                    ?: input.episodes
+                val total = max(
+                    mbData.intAny("totalEpisode", 0),
+                    max(
+                        rd0?.intAny("totalEpisode", 0) ?: mbData.optJSONObject("resourceDetectors")?.intAny("totalEpisode", 0) ?: 0,
+                        max(totalFromArr, input.episodes)
+                    )
+                ).coerceAtLeast(1)
+                val isSeriesOrShort = total > 1 || (epsArray != null && epsArray.length() > 1) || mbData.intAny("subjectType", 1) > 1
                 val d = normalize(mbData, p).copy(
                     id = mbData.stringAny("subjectId").ifBlank { input.id },
                     title = mbData.stringAny("title").ifBlank { input.title },
                     description = mbData.stringAny("description").ifBlank { input.description },
-                    episodes = if (mbData.intAny("subjectType", 1) == 2) max(total, 1) else 1,
+                    episodes = total,
                     poster = fixImg(mbData.coverUrl().ifBlank { input.poster }),
-                    tags = mbData.stringAny("genre").split(",").map { it.trim() }.filter { it.isNotBlank() },
-                    subjectType = mbData.intAny("subjectType", input.subjectType),
+                    tags = mbData.stringAny("genre").split(",").map { it.trim() }.filter { it.isNotBlank() }
+                        .plus(mbData.optJSONArray("tags")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }.orEmpty())
+                        .distinct(),
+                    subjectType = mbData.intAny("subjectType", if (isSeriesOrShort) 2 else input.subjectType),
                     platform = p
                 )
-                return Detail(d, (1..d.episodes.coerceAtLeast(1)).map { EpisodeInfo(it) })
+                val epList = if (epsArray != null && epsArray.length() > 0) {
+                    (0 until epsArray.length()).map { i ->
+                        val obj = epsArray.optJSONObject(i)
+                        val epNum = obj?.intAny("episode", "ep", i + 1) ?: (i + 1)
+                        EpisodeInfo(
+                            number = if (epNum == 0) 1 else epNum,
+                            label = obj?.stringAny("title").orEmpty()
+                        )
+                    }.distinctBy { it.number }
+                } else {
+                    (1..d.episodes.coerceAtLeast(1)).map { EpisodeInfo(it) }
+                }
+                return Detail(d, epList)
             }
             // Fallback: pakai data dari listing, treat sebagai movie 1 episode.
             val d = input.copy(episodes = 1, subjectType = input.subjectType.takeIf { it != 0 } ?: 1, platform = p)
@@ -2745,13 +2806,8 @@ private class DramakuRepository {
                 StreamResult(url)
             }
             "moviebox" -> {
-                // Worker baru (new-api.sonzaix.workers.dev) sekarang mengembalikan
-                // link CDN bcdn.hakunaymatata.com. Fallback ke host lama kalau worker baru
-                // error (geo-block / 5xx) supaya user masih bisa nonton.
-                val streamBaseCandidates = listOfNotNull(
-                    base,
-                    "https://api.sonzaix.indevs.in/moviebox".takeIf { base.contains("new-api") }
-                ).distinct()
+                // TODO_MOVIEBOX_ENDPOINT: ganti dengan endpoint baru yang diberikan nanti
+                val streamBaseCandidates = listOf(base)
                 // Movie: endpoint hanya balas 360/480 HEVC + 1080 H264. Series: 720 bisa HEVC/H264 campur.
                 val resolutions = if (drama.subjectType == 2) {
                     listOf(res, 1080, 720, 480, 360).distinct()
@@ -2824,12 +2880,19 @@ private class DramakuRepository {
         repeat(3) { attempt ->
             if (attempt > 0) delay(450L * attempt)
             try {
-                return@withContext client.newCall(
-                    Request.Builder().url(url)
-                        .header("User-Agent", "DramakuNative/5.0 Android")
-                        .header("Accept", "application/json, text/plain, */*")
-                        .build()
-                ).execute().use { r ->
+                val isMovieBoxApi = url.contains("captain.sapimu.au") || url.contains("moviebox")
+                val isPostEndpoint = url.contains("/subject/search") || url.contains("/shorts/most-trending") || url.contains("/shorts/reel")
+                val reqBuilder = Request.Builder().url(url)
+                    .header("User-Agent", if (isMovieBoxApi) "Mozilla/5.0" else "DramakuNative/5.0 Android")
+                    .header("Accept", "application/json, text/plain, */*")
+                if (isMovieBoxApi) {
+                    reqBuilder.header("Authorization", "Bearer 15693e658f723c5b4c45900a5d045ef0ab6a053ecda4dadb831c68fef773ba5e")
+                }
+                if (isPostEndpoint) {
+                    reqBuilder.header("Content-Type", "application/json")
+                    reqBuilder.post("".toRequestBody("application/json".toMediaTypeOrNull()))
+                }
+                return@withContext client.newCall(reqBuilder.build()).execute().use { r ->
                     val body = r.body?.string().orEmpty()
                     val json = runCatching { JSONObject(body) }.getOrNull()
                     if (!r.isSuccessful) {
@@ -2881,10 +2944,13 @@ private fun homeUrls(p: String, page: Int = 1): List<String> {
         "dramabox" -> { h = "$base/home?page=$sp&lang=in"; pop = "$base/populer?page=$sp&lang=in"; nw = "$base/new?page=$sp&lang=in" }
         "goodshort" -> { h = "$base/home?page=$sp"; pop = "$base/populer?page=$sp"; nw = "$base/new?page=$sp&channelId=563" }
         "moviebox" -> {
-            // /global sering timeout/stale di API MovieBox. Pakai endpoint yang stabil supaya home tidak nyangkut shimmer.
-            h = "$base/homepage?tabId=0"
-            pop = "$base/indonesia?page=$sp&perPage=20"
-            nw = "$base/horror?page=$sp&perPage=20"
+            // Migrasi API MovieBox ke captain.sapimu.au
+            // - Recommended: /tabs/home-content
+            // - Popular: /tabs/category-content?type=1
+            // - Newest (Trending Shorts): /shorts/most-trending
+            h = "$base/tabs/home-content?page=$sp&lang=id"
+            pop = "$base/tabs/category-content?type=1&page=$sp&lang=id"
+            nw = "$base/shorts/most-trending?page=$sp&perPage=20"
         }
         "drakor" -> { h = "$base/home/korea?page=$sp&limit=30&sort=LATEST"; pop = "$base/trending?page=$sp&limit=30&days=30"; nw = "$base/terbaru?page=$sp&limit=30" }
     }
@@ -2894,7 +2960,7 @@ private fun homeUrls(p: String, page: Int = 1): List<String> {
 private fun detailUrl(d: Drama): String = when (d.platform) {
     "dramabox" -> "${apiBase(d.platform)}/detail?bookId=${enc(d.id)}&lang=in"
     "goodshort" -> "${apiBase(d.platform)}/detail?bookId=${enc(d.id)}"
-    "moviebox" -> "${apiBase(d.platform)}/detail?subjectId=${enc(d.id)}"
+    "moviebox" -> "${apiBase(d.platform)}/subject/get?subjectId=${enc(d.id)}&lang=id"
     "drakor" -> "${apiBase(d.platform)}/detail?id=${enc(d.id)}"
     "flickreels", "dramanova", "reelshort", "netshort" -> "${apiBase(d.platform)}/detail?id=${enc(d.id)}"
     else -> "${apiBase(d.platform)}/detail?id=${enc(d.id)}&lang=id"
