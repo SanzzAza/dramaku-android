@@ -182,6 +182,27 @@ private sealed class Load<out T> {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// PLATFORMS
+// ─────────────────────────────────────────────────────────────────
+
+private val Platforms = listOf(
+    PlatformInfo("melolo", "Melolo", "https://captain.sapimu.au/melolo/api/v1", logoRes = R.drawable.logo_melolo),
+    PlatformInfo("freereels", "FreeReels", "https://new-api.sonzaix.workers.dev/freereels", logoRes = R.drawable.logo_freereels),
+    PlatformInfo("flickreels", "FlickReels", "https://new-api.sonzaix.workers.dev/flickreels", logoRes = R.drawable.logo_flickreels),
+    PlatformInfo("dramanova", "DramaNova", "https://new-api.sonzaix.workers.dev/dramanova", logoRes = R.drawable.logo_dramanova),
+    PlatformInfo("reelshort", "ReelShort", "https://new-api.sonzaix.workers.dev/reelshort", "https://v-mps.crazymaplestudios.com/images/211d3420-d721-11f0-84ad-6b5693b490dc.png"),
+    PlatformInfo("netshort", "NetShort", "https://new-api.sonzaix.workers.dev/netshort", "https://netshort.com/assets/logo/logo.png"),
+    PlatformInfo("dramabox", "DramaBox", "https://new-api.sonzaix.workers.dev/dramabox", "https://www.google.com/s2/favicons?sz=256&domain=dramaboxapp.com"),
+    PlatformInfo("goodshort", "GoodShort", "https://new-api.sonzaix.workers.dev/goodshort", "https://acfs3.goodshort.com/dist/src/assets/images/pc/common/1b3b5f4e-logo.png"),
+    PlatformInfo("moviebox", "MovieBox", "https://captain.sapimu.au/moviebox/api", "https://www.google.com/s2/favicons?sz=256&domain=moviebox.ng"),
+    PlatformInfo("drakor", "Drakor", "https://new-api.sonzaix.workers.dev/drama", "https://www.google.com/s2/favicons?sz=256&domain=drakor.id")
+)
+
+private fun platform(id: String) = Platforms.firstOrNull { it.id == id } ?: Platforms.first()
+private fun platformLabel(id: String) = platform(id).label
+private fun apiBase(id: String) = platform(id).base
+
+// ─────────────────────────────────────────────────────────────────
 // APP ENTRY
 // ─────────────────────────────────────────────────────────────────
 
@@ -219,27 +240,6 @@ private fun DramakuApp() {
         App()
     }
 }
-
-// ─────────────────────────────────────────────────────────────────
-// PLATFORMS
-// ─────────────────────────────────────────────────────────────────
-
-private val Platforms = listOf(
-    PlatformInfo("melolo", "Melolo", "https://captain.sapimu.au/melolo/api/v1", logoRes = R.drawable.logo_melolo),
-    PlatformInfo("freereels", "FreeReels", "https://new-api.sonzaix.workers.dev/freereels", logoRes = R.drawable.logo_freereels),
-    PlatformInfo("flickreels", "FlickReels", "https://new-api.sonzaix.workers.dev/flickreels", logoRes = R.drawable.logo_flickreels),
-    PlatformInfo("dramanova", "DramaNova", "https://new-api.sonzaix.workers.dev/dramanova", logoRes = R.drawable.logo_dramanova),
-    PlatformInfo("reelshort", "ReelShort", "https://new-api.sonzaix.workers.dev/reelshort", "https://v-mps.crazymaplestudios.com/images/211d3420-d721-11f0-84ad-6b5693b490dc.png"),
-    PlatformInfo("netshort", "NetShort", "https://new-api.sonzaix.workers.dev/netshort", "https://netshort.com/assets/logo/logo.png"),
-    PlatformInfo("dramabox", "DramaBox", "https://new-api.sonzaix.workers.dev/dramabox", "https://www.google.com/s2/favicons?sz=256&domain=dramaboxapp.com"),
-    PlatformInfo("goodshort", "GoodShort", "https://new-api.sonzaix.workers.dev/goodshort", "https://acfs3.goodshort.com/dist/src/assets/images/pc/common/1b3b5f4e-logo.png"),
-    PlatformInfo("moviebox", "MovieBox", "https://captain.sapimu.au/moviebox/api", "https://www.google.com/s2/favicons?sz=256&domain=moviebox.ng"),
-    PlatformInfo("drakor", "Drakor", "https://new-api.sonzaix.workers.dev/drama", "https://www.google.com/s2/favicons?sz=256&domain=drakor.id")
-)
-
-private fun platform(id: String) = Platforms.firstOrNull { it.id == id } ?: Platforms.first()
-private fun platformLabel(id: String) = platform(id).label
-private fun apiBase(id: String) = platform(id).base
 
 // ─────────────────────────────────────────────────────────────────
 // MAIN APP COMPOSABLE
@@ -374,7 +374,9 @@ private fun App() {
                                 remoteError = remoteError, loadingMore = homeLoadingMore,
                                 loadMoreError = homeAppendError, onLoadMore = ::loadMore,
                                 onPlatform = {
-                                    selPlatform = it; store.setPlatform(it); store.setCategoryPlatform(activeCat.id, it); refreshKey++
+                                    val allowed = remoteConfig?.isPlatformEnabled(it) ?: true
+                                    if (!allowed) Toast.makeText(ctx, "${platformLabel(it)}: Maintenance", Toast.LENGTH_SHORT).show()
+                                    else { selPlatform = it; store.setPlatform(it); store.setCategoryPlatform(activeCat.id, it); refreshKey++ }
                                 },
                                 onRefresh = { refreshKey++ }, onDrama = { selectedDrama = it },
                                 onSearch = { tab = Tab.Search },
@@ -454,7 +456,7 @@ private fun App() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// UI COMPONENTS
+// UI COMPONENTS (PREMIUM DESIGN)
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
@@ -564,7 +566,7 @@ private fun HomeScreen(
             is Load.Err -> item { ErrorCard(state.message, onRefresh) }
             is Load.Ok<HomeBundle> -> {
                 val data = state.data
-                val all = (data.newest + data.popular + data.recommended).distinctBy { it.platform + it.id }
+                val all = (data.newest + data.popular + data.recommended).filter { it.id.isNotBlank() }.distinctBy { it.platform + it.id }
 
                 if (all.isEmpty()) {
                     item { EmptyState("Belum ada judul", "Coba refresh atau ganti sumber dulu", Icons.Rounded.Movie) }
@@ -780,7 +782,7 @@ private fun ContinueCard(h: HistoryItem, onClick: (HistoryItem) -> Unit) {
         Box(Modifier.fillMaxWidth().aspectRatio(1.6f).clip(RoundedCornerShape(16.dp)).background(DS.Bg2)) {
             PosterImage(h.poster, h.title, Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)))))
-            LinearProgressIndicator(progress = (h.pct / 100f).coerceIn(0f, 1f), color = DS.Primary, trackColor = Color.White.copy(alpha = 0.2f), modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp))
+            LinearProgressIndicator(progress = (h.pct / 100f).coerceIn(0f, 1f), color = DS.Primary, trackColor = Color.White.copy(alpha = 0.2f), modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp) )
         }
         Spacer(Modifier.height(10.dp))
         Text(h.title, color = DS.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1103,12 +1105,30 @@ private fun Context.isNetworkAvailable(): Boolean {
 private fun buildPlayer(ctx: Context): ExoPlayer = ExoPlayer.Builder(ctx).build()
 private fun shareDrama(ctx: Context, d: Drama) {}
 private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
-private fun normalizeKey(s: String) = s.lowercase()
-private fun mergeHomeBundles(c: HomeBundle, n: HomeBundle) = n
+private fun normalizeKey(s: String) = s.lowercase().replace(Regex("[^a-z0-9\\p{L}\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+private fun mergeHomeBundles(c: HomeBundle, n: HomeBundle) = HomeBundle(dedupe(c.recommended + n.recommended), dedupe(c.popular + n.popular), dedupe(c.newest + n.newest), max(c.loadedPage, n.loadedPage), n.hasMore)
+private fun dedupe(items: List<Drama>) = items.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.platform + "|" + it.id }.distinctBy { it.platform + "|" + normalizeKey(it.title) }
 
 // ─────────────────────────────────────────────────────────────────
-// REPOSITORY
+// REPOSITORY (RESTORED ORIGINAL LOGIC)
 // ─────────────────────────────────────────────────────────────────
+
+private fun extractStreamV2Url(json: JSONObject): String {
+    for (key in listOf("episodes", "list", "videoList")) {
+        val episodes = json.optJSONArray(key)?.objects().orEmpty()
+        for (ep in episodes) {
+            val cdnList = ep.optJSONArray("cdnList")?.objects().orEmpty()
+            for (cdn in cdnList) {
+                val paths = cdn.optJSONArray("videoPathList")?.objects().orEmpty()
+                val vp = paths.firstOrNull()?.stringAny("videoPath").orEmpty()
+                if (vp.isNotBlank()) return vp
+            }
+            val direct = ep.stringAny("playUrl", "url", "videoPath", "hls_url").orEmpty()
+            if (direct.isNotBlank()) return direct
+        }
+    }
+    return json.stringAny("url", "playUrl").orEmpty()
+}
 
 private class DramakuRepository {
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).build()
@@ -1117,40 +1137,66 @@ private class DramakuRepository {
     suspend fun loadHome(p: String) = loadHomePage(p, 1)
 
     suspend fun loadHomePage(p: String, page: Int): HomeBundle = coroutineScope {
-        val base = apiBase(p)
-        val url = "$base/home?page=$page&lang=id"
+        if (p == "melolo") return@coroutineScope loadMeloloHome(page)
+        val urls = homeUrls(p, page)
+        val jobs = urls.map { async { runCatching { getJson(it) }.getOrNull() } }
+        val results = jobs.awaitAll()
+        val rec = flat(results.getOrNull(0)?.dataOrSelf(), p)
+        val pop = flat(results.getOrNull(1)?.dataOrSelf(), p)
+        val newest = flat(results.getOrNull(2)?.dataOrSelf(), p)
+        HomeBundle(rec, pop, newest, page, page < 5)
+    }
+
+    private suspend fun loadMeloloHome(page: Int): HomeBundle {
+        val base = apiBase("melolo")
+        val url = if (page == 1) "$base/bookmall?lang=id" else "$base/search?q=a&lang=id&limit=20&offset=${(page - 1) * 20}"
         val json = runCatching { getJson(url) }.getOrNull()
-        val items = flat(json?.opt("data"), p)
-        HomeBundle(items, items.shuffled(), items.reversed(), page, page < 5)
+        val items = flat(json?.dataOrSelf(), "melolo")
+        return HomeBundle(items, items.shuffled(), items.reversed(), page, page < 5)
     }
 
     suspend fun searchPlatform(q: String, p: String): List<Drama> = coroutineScope {
         val base = apiBase(p)
-        val url = "$base/search?q=${enc(q)}&lang=id"
-        flat(getJson(url).opt("data"), p)
+        val url = when(p) {
+            "moviebox" -> "$base/subject/search?keyword=${enc(q)}&page=1"
+            else -> "$base/search?q=${enc(q)}&lang=id"
+        }
+        flat(runCatching { getJson(url).dataOrSelf() }.getOrNull(), p)
     }
 
     suspend fun loadDetailCached(d: Drama): Detail {
         detailCache[d.platform + d.id]?.let { return it }
         val base = apiBase(d.platform)
-        val url = "$base/detail?id=${enc(d.id)}&lang=id"
-        val json = runCatching { getJson(url).optJSONObject("data") }.getOrNull() ?: JSONObject()
-        val res = normalize(json, d.platform)
-        val epsArr = json.optJSONArray("episodes") ?: json.optJSONArray("video_list")
-        val eps = epsArr?.objects()?.mapIndexed { i, o -> EpisodeInfo(o.optInt("episode", i + 1), o.optString("streaming")) }.orEmpty()
-        return Detail(res, eps).also { detailCache[d.platform + d.id] = it }
+        val url = when(d.platform) {
+            "moviebox" -> "$base/subject/get?subjectId=${enc(d.id)}&lang=id"
+            else -> "$base/detail?id=${enc(d.id)}&lang=id"
+        }
+        val raw = runCatching { getJson(url).dataOrSelf() }.getOrNull() as? JSONObject ?: JSONObject()
+        val res = normalize(raw, d.platform)
+        val epsArr = raw.optJSONArray("episodes") ?: raw.optJSONArray("video_list") ?: raw.optJSONArray("chapterList")
+        val eps = epsArr?.objects()?.mapIndexed { i, o -> EpisodeInfo(o.intAny("episode", "index", i + 1), o.stringAny("streaming", "url")) }.orEmpty()
+        return Detail(res.copy(id = d.id, title = res.title.ifBlank { d.title }), eps).also { detailCache[d.platform + d.id] = it }
     }
 
     suspend fun resolveStreamCached(d: Detail, ep: Int, ds: Boolean): StreamResult {
         val base = apiBase(d.drama.platform)
         val url = "$base/stream?id=${enc(d.drama.id)}&ep=$ep"
-        val json = runCatching { getJson(url).optJSONObject("data") }.getOrNull() ?: JSONObject()
-        return StreamResult(json.optString("url"))
+        val json = runCatching { getJson(url).dataOrSelf() }.getOrNull() as? JSONObject ?: JSONObject()
+        val stream = extractStreamV2Url(json).ifBlank { json.stringAny("url", "playUrl", "video_url") }
+        return StreamResult(stream)
     }
 
     private suspend fun getJson(url: String): JSONObject = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url(url).build()
+        val req = Request.Builder().url(url).header("User-Agent", "Dramaku/5.0").build()
         client.newCall(req).execute().use { r -> JSONObject(r.body?.string() ?: "{}") }
+    }
+
+    private fun homeUrls(p: String, sp: Int): List<String> {
+        val base = apiBase(p)
+        return when (p) {
+            "moviebox" -> listOf("$base/tabs/home-content?page=$sp&lang=id", "$base/tabs/category-content?type=1&page=$sp", "$base/shorts/most-trending")
+            else -> listOf("$base/home?page=$sp&lang=id", "$base/populer?page=$sp", "$base/new?page=$sp")
+        }
     }
 }
 
@@ -1159,16 +1205,14 @@ private class DramakuRepository {
 // ─────────────────────────────────────────────────────────────────
 
 private class LocalStore(ctx: Context) {
-    private val p = ctx.getSharedPreferences("dramaku_v3", Context.MODE_PRIVATE)
+    private val p = ctx.getSharedPreferences("dramaku_v4", Context.MODE_PRIVATE)
     fun platform() = p.getString("p", "melolo") ?: "melolo"
     fun setPlatform(s: String) = p.edit().putString("p", s).apply()
     fun categoryPlatform(cat: String, fallback: String) = p.getString("cp_$cat", fallback) ?: fallback
     fun setCategoryPlatform(cat: String, platform: String) = p.edit().putString("cp_$cat", platform).apply()
-    
     fun updateProgress(id: String, platform: String, ep: Int, pos: Long, dur: Long) {
         p.edit().putLong("prog_${platform}_${id}_${ep}_pos", pos).putLong("prog_${platform}_${id}_${ep}_dur", dur).apply()
     }
-
     fun history(tick: Int = 0): List<HistoryItem> = emptyList()
     fun favs(): List<Drama> = emptyList()
     fun isFav(id: String, p: String) = false
@@ -1181,31 +1225,36 @@ private class LocalStore(ctx: Context) {
 // JSON HELPERS
 // ─────────────────────────────────────────────────────────────────
 
+private fun JSONObject.dataOrSelf(): Any = opt("data")?.takeUnless { it == JSONObject.NULL } ?: this
+private fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
+private fun JSONObject.stringAny(vararg keys: String): String {
+    for (k in keys) { val v = opt(k); if (v != null && v != JSONObject.NULL && v.toString().isNotBlank()) return v.toString().trim() }
+    return ""
+}
+private fun JSONObject.intAny(vararg keys: Any): Int {
+    for (k in keys) { if (k is String && has(k)) { val v = opt(k); return when(v) { is Number -> v.toInt(); is String -> v.toIntOrNull() ?: 0; else -> 0 } } }
+    return 0
+}
+
 private fun flat(any: Any?, fp: String): List<Drama> {
     val out = mutableListOf<Drama>()
-    if (any is JSONArray) {
-        for (i in 0 until any.length()) {
-            any.optJSONObject(i)?.let { out.add(normalize(it, fp)) }
+    when (any) {
+        is JSONArray -> any.objects().forEach { out.add(normalize(it, fp)) }
+        is JSONObject -> {
+            val list = any.optJSONArray("books") ?: any.optJSONArray("subjects") ?: any.optJSONArray("items")
+            if (list != null) out.addAll(flat(list, fp)) else out.add(normalize(any, fp))
         }
-    } else if (any is JSONObject) {
-        out.add(normalize(any, fp))
     }
     return out.filter { it.id.isNotBlank() }
 }
 
 private fun normalize(o: JSONObject, fp: String) = Drama(
-    o.optString("id"),
-    o.optString("title"),
-    o.optString("description"),
-    o.optString("poster"),
-    o.optInt("episodes"),
-    o.optString("views"),
+    o.stringAny("id", "drama_id", "bookId", "subjectId"),
+    o.stringAny("title", "name", "drama_name", "bookName", "book_name"),
+    o.stringAny("description", "intro", "synopsis", "introduction"),
+    o.stringAny("poster", "cover", "thumb_url", "coverWap", "bookCover"),
+    o.intAny("episodes", "episode_count", "chapterCount", "totalEpisode"),
+    o.stringAny("views", "hits", "hotCode"),
     emptyList(),
     fp
 )
-
-private fun JSONArray.objects(): List<JSONObject> {
-    val l = mutableListOf<JSONObject>()
-    for (i in 0 until length()) optJSONObject(i)?.let { l.add(it) }
-    return l
-}
