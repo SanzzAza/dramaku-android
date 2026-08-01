@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.input.pointer.pointerInput
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
@@ -667,7 +668,7 @@ private fun HeaderCircleButton(icon: ImageVector, label: String, onClick: () -> 
 @Composable
 private fun HeroCard(drama: Drama, onClick: (Drama) -> Unit) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 22.dp).height(360.dp).clip(RoundedCornerShape(22.dp)).clickable { onClick(drama) }) {
-        AsyncImage(drama.poster, drama.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        PosterImage(drama.poster, drama.title, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, DS.Bg.copy(alpha = .92f)))))
         Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
             Text("REKOMENDASI UNTUKMU", color = DS.Secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -694,7 +695,7 @@ private fun ContinueCard(h: HistoryItem, onClick: (HistoryItem) -> Unit) {
 private fun DiscoverDramaCard(drama: Drama, isNew: Boolean, onClick: (Drama) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.clickable { onClick(drama) }) {
         Box(Modifier.fillMaxWidth().aspectRatio(0.72f).clip(RoundedCornerShape(14.dp)).background(DS.Bg2).border(1.dp, DS.Line, RoundedCornerShape(14.dp))) {
-            AsyncImage(drama.poster, drama.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            PosterImage(drama.poster, drama.title, Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
             if (drama.episodes > 0) {
                 Surface(color = Color.Black.copy(alpha = 0.6f), shape = RoundedCornerShape(6.dp), modifier = Modifier.align(Alignment.BottomStart).padding(10.dp)) {
@@ -710,9 +711,31 @@ private fun DiscoverDramaCard(drama: Drama, isNew: Boolean, onClick: (Drama) -> 
 
 @Composable
 private fun PosterImage(url: String, title: String, modifier: Modifier) {
-    Box(modifier.clip(RoundedCornerShape(14.dp)).background(DS.Bg3)) {
-        if (url.isNotBlank()) AsyncImage(url, title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Movie, null, tint = DS.Hint) }
+    Box(modifier.clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(DS.Bg3, DS.Bg2)))) {
+        if (url.isNotBlank()) {
+            SubcomposeAsyncImage(
+                model = url,
+                contentDescription = title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                loading = { PosterFallback(title) },
+                error = { PosterFallback(title) }
+            )
+        } else PosterFallback(title)
+    }
+}
+
+@Composable
+private fun PosterFallback(title: String) {
+    val initial = title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "D"
+    Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(DS.Bg3, DS.Bg2))), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(12.dp)) {
+            Surface(color = DS.Primary.copy(alpha = .18f), shape = CircleShape, modifier = Modifier.size(46.dp)) {
+                Box(contentAlignment = Alignment.Center) { Text(initial, color = DS.Primary, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(title.ifBlank { "Dramaku" }, color = DS.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -945,7 +968,7 @@ private fun ClipFeedPlayer(items: List<Drama>, repo: DramakuRepository, store: L
         loadError = null
         runCatching { repo.resolveStreamCached(Detail(drama), 1, false) }
             .onSuccess {
-                player.setMediaItem(MediaItem.fromUri(it.url)); player.prepare(); player.play()
+                player.setMediaItem(streamMediaItem(it.url)); player.prepare(); player.play()
                 playing = true
             }
             .onFailure { loadError = it.message ?: "Video gagal dimuat" }
@@ -1027,7 +1050,7 @@ private fun VerticalEpisodePlayer(detail: Detail, startEp: Int, repo: DramakuRep
         loadError = null
         runCatching { repo.resolveStreamCached(detail, ep, false) }
             .onSuccess {
-                player.setMediaItem(MediaItem.fromUri(it.url)); player.prepare(); player.play()
+                player.setMediaItem(streamMediaItem(it.url)); player.prepare(); player.play()
                 playing = true
             }
             .onFailure { loadError = it.message ?: "Video gagal dimuat" }
@@ -1082,7 +1105,18 @@ private fun Context.isNetworkAvailable(): Boolean {
     return cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
 }
 
-private fun buildPlayer(ctx: Context): ExoPlayer = ExoPlayer.Builder(ctx).build()
+private fun streamMediaItem(url: String): MediaItem = MediaItem.Builder().setUri(url).apply { if (url.lowercase().contains("m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8) }.build()
+
+private fun buildPlayer(ctx: Context): ExoPlayer {
+    val http = DefaultHttpDataSource.Factory()
+        .setUserAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/121 Mobile Safari/537.36")
+        .setAllowCrossProtocolRedirects(true)
+        .setConnectTimeoutMs(15_000)
+        .setReadTimeoutMs(30_000)
+    return ExoPlayer.Builder(ctx)
+        .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+        .build()
+}
 private fun shareDrama(ctx: Context, d: Drama) {}
 private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 private fun normalizeKey(s: String) = s.lowercase().replace(Regex("[^a-z0-9\\p{L}\\s]"), " ").replace(Regex("\\s+"), " ").trim()
